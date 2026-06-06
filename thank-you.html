@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thank You - Dental Marketing Resource Hub</title>
+    <style>
+        /* تصميم مبسط جداً كما طلبت */
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f4f7f6; }
+        .container { text-align: center; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; }
+        .btn { background: #3498db; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 20px; }
+        .btn:hover { background: #2980b9; }
+        .btn:disabled { background: #95a5a6; cursor: not-allowed; }
+        .message { margin-top: 15px; color: #27ae60; font-weight: bold; display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>You're In! 🎉</h1>
+        <p>Thanks for your interest. Your dental marketing resource is ready.</p>
+        
+        <!-- زر التحميل -->
+        <button id="download-btn" class="btn">Download Now</button>
+        
+        <p id="success-msg" class="message">Download started! Check your browser downloads.</p>
+    </div>
+
+    <script>
+        document.getElementById('download-btn').addEventListener('click', async function() {
+            const btn = this;
+            const msg = document.getElementById('success-msg');
+            
+            // جلب بيانات التتبع من التخزين المحلي
+            const fingerprint_id = localStorage.getItem('dmr_fp');
+            const session_id = sessionStorage.getItem('dmr_session');
+            
+            if (!fingerprint_id) {
+                alert('Tracking data missing. Please refresh the page.');
+                return;
+            }
+
+            // تعطيل الزر أثناء الطلب
+            btn.disabled = true;
+            btn.textContent = 'Preparing...';
+
+            try {
+                const res = await fetch('/api/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        fingerprint_id: fingerprint_id,
+                        session_id: session_id,
+                        // نحدد للسيرفر أي ملف يريده الزائر (يمكن جعله ديناميكياً عبر URL Param)
+                        file_id: 'ghl-setup-guide' 
+                    })
+                });
+
+                const data = await res.json();
+                
+                if (data.success && data.download_url) {
+                    // فتح الرابط المباشر في تاب جديد لبدء التحميل
+                    window.open(data.download_url, '_blank');
+                    
+                    // تحديث واجهة المستخدم
+                    btn.textContent = 'Downloaded ✓';
+                    msg.style.display = 'block';
+                } else {
+                    throw new Error(data.error || 'Failed to get download link');
+                }
+            } catch (error) {
+                console.error('Download error:', error);
+                alert('Something went wrong. Please try again.');
+                btn.disabled = false;
+                btn.textContent = 'Try Again';
+            }
+        });
+    </script>
+</body>
+</html>
