@@ -1,7 +1,7 @@
 // functions/api/track.js
 
-const SUPABASE_URL = 'SUPABASE_URL';
-const SUPABASE_ANON_KEY = 'SUPABASE_ANON_KEY';
+const SUPABASE_URL = 'https://euzfegkchpndqiixeeiy.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_nM8-NC5o-7byMLDtrB4wVA_c8rmClEM';
 
 const supabaseHeaders = {
   'apikey': SUPABASE_ANON_KEY,

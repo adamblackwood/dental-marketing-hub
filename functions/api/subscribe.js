@@ -1,7 +1,7 @@
 // functions/api/subscribe.js
 
-const SUPABASE_URL = 'SUPABASE_URL';
-const SUPABASE_ANON_KEY = 'SUPABASE_ANON_KEY';
+const SUPABASE_URL = 'https://euzfegkchpndqiixeeiy.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_nM8-NC5o-7byMLDtrB4wVA_c8rmClEM';
 const TELEGRAM_TOKEN = '8424656659:AAEbo9X2Kuw1QZDRPyu_Uy-SNg6T36vQoRg';
 const TELEGRAM_CHAT_ID = '7203463194';
 const GOOGLE_SHEETS_WEBHOOK_URL = 'GOOGLE_SHEETS_WEBHOOK_URL';
