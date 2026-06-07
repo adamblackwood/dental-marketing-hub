@@ -1,19 +1,12 @@
 // functions/api/download.js
 
-const SUPABASE_URL = 'SUPABASE_URL';
-const SUPABASE_ANON_KEY = 'SUPABASE_ANON_KEY';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, FILES_MAP } from './config.js';
 
 const supabaseHeaders = {
   'apikey': SUPABASE_ANON_KEY,
   'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
   'Content-Type': 'application/json',
   'Prefer': 'return=minimal'
-};
-
-// روابط الملفات الحقيقية (يمكنك استضافته على Cloudflare R2 أو أي مكان آخر)
-const FILES_MAP = {
-  'ghl-setup-guide': 'https://your-storage.com/files/ghl-setup-guide.pdf',
-  'dental-marketing-checklist': 'https://your-storage.com/files/dental-checklist.pdf'
 };
 
 export async function onRequestPost(context) {
@@ -25,7 +18,7 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400 });
     }
 
-    // التحقق من وجود الملف في الخريطة
+    // التحقق من وجود الملف في الخريطة القادمة من config.js
     const fileUrl = FILES_MAP[file_id];
     if (!fileUrl) {
       return new Response(JSON.stringify({ error: 'File not found' }), { status: 404 });
