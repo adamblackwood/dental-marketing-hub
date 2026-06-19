@@ -1,22 +1,22 @@
 // functions/api/config.js
 
-// إعدادات Supabase
-export const SUPABASE_URL = 'SUPABASE_URL'; // استبدل برابط مشروعك
-export const SUPABASE_ANON_KEY = 'SUPABASE_ANON_KEY'; // استبدل بالمفتاح العام
+// 1. إعدادات Supabase (تم وضع بياناتك)
+export const SUPABASE_URL = 'https://stddyldsvyuafdsqmbnh.supabase.co';
+export const SUPABASE_ANON_KEY = 'sb_publishable_4_BUKbjLco5r-27IoxjlAQ_YKsuibZ5';
 
-// إعدادات Telegram
+// 2. إعدادات Telegram (تم وضع بياناتك)
 export const TELEGRAM_TOKEN = '8424656659:AAEbo9X2Kuw1QZDRPyu_Uy-SNg6T36vQoRg';
 export const TELEGRAM_CHAT_ID = '7203463194';
 
-// إعدادات Google Sheets
-export const GOOGLE_SHEETS_WEBHOOK_URL = 'GOOGLE_SHEETS_WEBHOOK_URL'; // استبدل برابط الـ Webhook
+// 3. إعدادات Google Sheets (تم وضع رابطك)
+export const GOOGLE_SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwCSBtTxJVafochcb5tKHjPXTUdUjHaKlP0HOgO75iqojNcR9BwnCKCMot7GgCasXkSBQ/exec';
 
-// إعدادات الأفلييت والتحميل
-export const GHL_AFFILIATE_LINK = 'https://www.gohighlevel.com/?-aff-code=YOUR_AFFILIATE_CODE';
+// 4. إعدادات الأفلييت والتحميل (يجب عليك تعبئتها)
+export const GHL_AFFILIATE_LINK = 'https://www.gohighlevel.com/'; // ⚠️ ضع هنا رابط الأفلييت الخاص بك في GHL
 export const FILES_MAP = {
-  'ghl-setup-guide': 'https://your-storage.com/files/ghl-setup-guide.pdf',
-  'dental-marketing-checklist': 'https://your-storage.com/files/dental-checklist.pdf'
+  // ⚠️ ضع هنا رابط مباشر لملف الـ PDF الذي سيعطيه الزائر بعد التسجيل
+  'ghl-setup-guide': 'https://your-storage.com/files/ghl-setup-guide.pdf' 
 };
 
-// إعدادات الأمان والإدارة
-export const ADMIN_SECRET = 'AdminSecretPass123';
+// 5. إعدادات الأمان والإدارة
+export const ADMIN_SECRET = 'AdminSecretPass123'; // ⚠️ غيّر هذه الكلمة لحماية لوحة التحكم الخاصة بك
