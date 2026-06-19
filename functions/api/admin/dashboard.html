@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Command Center - DentalHub</title>
+    <link rel="stylesheet" href="/assets/css/dashboard.css">
+</head>
+<body>
+
+    <!-- Top Navigation Bar -->
+    <header class="top-bar">
+        <div class="logo">DentalHub <span>Admin</span></div>
+        
+        <div class="controls">
+            <!-- Date Filter Placeholder (سيتم تفعيله في دفعة التحليلات) -->
+            <select id="date-filter" class="control-btn">
+                <option value="1d">Today</option>
+                <option value="7d" selected>Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+                <option value="all">All Time</option>
+            </select>
+
+            <!-- The Famous Toggle Switch -->
+            <div class="toggle-switch-container">
+                <span class="toggle-label active" id="label-data">Data Management</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="view-toggle">
+                    <span class="slider"></span>
+                </label>
+                <span class="toggle-label" id="label-analytics">Analytics</span>
+            </div>
+
+            <button id="logout-btn" class="control-btn danger-btn">Logout</button>
+        </div>
+    </header>
+
+    <main class="dashboard-container">
+        
+        <!-- Analytics View (مخفي افتراضياً) -->
+        <div id="analytics-view" class="view-section hidden">
+            <h2 class="section-title">Performance Analytics</h2>
+            <div class="kpi-grid" id="kpi-container">
+                <!-- سيتم ملؤها بـ JS لاحقاً -->
+                <div class="kpi-card"><h3>Total Visits</h3><p id="kpi-visits">--</p></div>
+                <div class="kpi-card"><h3>Unique Visitors</h3><p id="kpi-visitors">--</p></div>
+                <div class="kpi-card"><h3>Bounce Rate</h3><p id="kpi-bounce">--</p></div>
+                <div class="kpi-card"><h3>Total Leads</h3><p id="kpi-leads">--</p></div>
+                <div class="kpi-card"><h3>GHL Clicks</h3><p id="kpi-clicks">--</p></div>
+            </div>
+            <div class="charts-area">
+                <!-- مساحة المخططات المستقبلية -->
+            </div>
+        </div>
+
+        <!-- Data Management View (ظاهر افتراضياً) -->
+        <div id="data-view" class="view-section">
+            <div class="data-header">
+                <div class="tabs">
+                    <button class="tab-btn active" data-target="visitors">Visitors</button>
+                    <button class="tab-btn" data-target="sessions">Sessions</button>
+                    <button class="tab-btn" data-target="events">Events</button>
+                </div>
+                <button class="control-btn primary-btn" id="add-new-btn">+ Add Visitor</button>
+            </div>
+
+            <div class="table-wrapper">
+                <table id="data-table">
+                    <thead id="table-head">
+                        <!-- سيتم بناء الـ Headers ديناميكياً في JS -->
+                    </thead>
+                    <tbody id="table-body">
+                        <!-- سيتم بناء الـ Rows ديناميكياً في JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="pagination-wrapper" id="pagination-container">
+                <!-- أزرار التنقل بين الصفحات ستُبنى هنا -->
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Modal Overlay (للتعديل والإضافة والحذف) -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Action</h3>
+                <button class="close-modal-btn" id="close-modal-btn">&times;</button>
+            </div>
+            <form id="modal-form">
+                <div id="modal-fields">
+                    <!-- الحقول ستُبنى ديناميكياً حسب نوع العملية -->
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="control-btn" id="cancel-modal-btn">Cancel</button>
+                    <button type="submit" class="control-btn primary-btn" id="confirm-modal-btn">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/assets/js/dashboard.js"></script>
+</body>
+</html>
