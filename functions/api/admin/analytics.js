@@ -7,7 +7,6 @@ const supabaseHeaders = {
   'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
 };
 
-// دالة مساعدة لجلب العدد الإجمالي بدون تحميل البيانات
 async function getCount(table, query = '') {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
     headers: { ...supabaseHeaders, 'Prefer': 'count=exact', 'Range': '0-0' }
@@ -26,13 +25,12 @@ export async function onRequestGet(context) {
     const url = new URL(context.request.url);
     const range = url.searchParams.get('range') || '7d';
 
-    // حساب التواريخ
     const now = new Date();
     let fromDate = new Date();
     if (range === '1d') fromDate.setDate(now.getDate() - 1);
     else if (range === '7d') fromDate.setDate(now.getDate() - 7);
     else if (range === '30d') fromDate.setDate(now.getDate() - 30);
-    else fromDate = new Date('2020-01-01'); // All time
+    else fromDate = new Date('2020-01-01');
 
     const isoFrom = fromDate.toISOString();
 
@@ -41,12 +39,12 @@ export async function onRequestGet(context) {
     const totalVisitors = await getCount('visitors', `last_seen_at=gte.${isoFrom}`);
     const totalLeads = await getCount('visitors', `identified_email=not.is.null&last_seen_at=gte.${isoFrom}`);
     const totalClicks = await getCount('events', `event_type=eq.affiliate_redirect&created_at=gte.${isoFrom}`);
+    const totalEmailOpens = await getCount('events', `event_type=eq.email_open&created_at=gte.${isoFrom}`);
     
-    // حساب الـ Bounce Rate
     const totalBounces = await getCount('sessions', `is_bounce=eq.true&started_at=gte.${isoFrom}`);
     const bounceRate = totalVisits > 0 ? Math.round((totalBounces / totalVisits) * 100) : 0;
 
-    // 2. جلب بيانات المخطط الزمني (آخر 7 أيام دائماً للرسم البياني)
+    // 2. جلب بيانات المخطط الزمني
     const chartDays = 7;
     const chartFromDate = new Date();
     chartFromDate.setDate(now.getDate() - chartDays);
@@ -57,31 +55,46 @@ export async function onRequestGet(context) {
     });
     const sessionsData = await chartRes.json();
 
-    // تجميع البيانات يومياً (Grouping in JS because PostgREST doesn't support Group By natively)
     const dailyData = {};
     for (let i = 0; i < chartDays; i++) {
       const d = new Date();
       d.setDate(now.getDate() - i);
-      const key = d.toISOString().split('T')[0]; // YYYY-MM-DD
+      const key = d.toISOString().split('T')[0];
       dailyData[key] = 0;
     }
 
     sessionsData.forEach(s => {
       const dayKey = s.started_at.split('T')[0];
-      if (dailyData[dayKey] !== undefined) {
-        dailyData[dayKey]++;
-      }
+      if (dailyData[dayKey] !== undefined) dailyData[dayKey]++;
     });
 
-    // تحويل الكائن إلى Array للـ Frontend وترتيبه زمنياً
     const chartArray = Object.entries(dailyData).map(([date, count]) => ({
-      date: date.substring(5), // MM-DD
-      visits: count
+      date: date.substring(5), visits: count
     })).reverse();
 
+    // 3. 🚀 حساب مصادر الزيارات (Traffic Sources)
+    const sourcesRes = await fetch(`${SUPABASE_URL}/rest/v1/visitors?select=first_source&last_seen_at=gte.${isoFrom}`, {
+      headers: supabaseHeaders
+    });
+    const sourcesData = await sourcesRes.json();
+    
+    const sourceCounts = {};
+    sourcesData.forEach(v => {
+      const source = v.first_source || 'direct';
+      sourceCounts[source] = (sourceCounts[source] || 0) + 1;
+    });
+
+    const totalSources = sourcesData.length;
+    const sourcesArray = Object.entries(sourceCounts).map(([name, count]) => ({
+      name: name,
+      count: count,
+      percentage: totalSources > 0 ? Math.round((count / totalSources) * 100) : 0
+    })).sort((a, b) => b.count - a.count);
+
     return new Response(JSON.stringify({ 
-      kpis: { totalVisits, totalVisitors, totalLeads, totalClicks, bounceRate },
-      chart: chartArray
+      kpis: { totalVisits, totalVisitors, totalLeads, totalClicks, totalEmailOpens, bounceRate },
+      chart: chartArray,
+      sources: sourcesArray
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }

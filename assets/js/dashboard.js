@@ -1,4 +1,4 @@
-// assets/js/dashboard.js - FINAL VERSION
+// assets/js/dashboard.js - FINAL VERSION WITH JOURNEY & SOURCES
 
 const DashboardApp = {
   state: {
@@ -31,6 +31,7 @@ const DashboardApp = {
     paginationContainer: document.getElementById('pagination-container'),
     dateFilter: document.getElementById('date-filter'),
     chartsArea: document.querySelector('.charts-area'),
+    sourcesContainer: document.getElementById('sources-container'),
     toastContainer: document.getElementById('toast-container')
   },
 
@@ -39,19 +40,14 @@ const DashboardApp = {
     this.loadCurrentTabData();
   },
 
-  // 🚀 نظام الإشعارات (Toasts)
   showToast(message, type = 'success') {
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
     this.elements.toastContainer.appendChild(toast);
-    
-    setTimeout(() => {
-      if (toast.parentNode) toast.parentNode.removeChild(toast);
-    }, 3000);
+    setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 3000);
   },
 
-  // 🚀 إدارة حالة التحميل للأزرار
   setButtonLoading(button, isLoading) {
     if (isLoading) {
       button.disabled = true;
@@ -66,7 +62,6 @@ const DashboardApp = {
   },
 
   setupEventListeners() {
-    // Toggle Switch
     this.elements.viewToggle.addEventListener('change', (e) => {
       const isAnalytics = e.target.checked;
       this.elements.analyticsView.classList.toggle('hidden', !isAnalytics);
@@ -76,7 +71,6 @@ const DashboardApp = {
       if (isAnalytics) this.loadAnalytics();
     });
 
-    // Tabs Switching
     this.elements.tabs.forEach(tab => {
       tab.addEventListener('click', (e) => {
         this.elements.tabs.forEach(t => t.classList.remove('active'));
@@ -87,23 +81,19 @@ const DashboardApp = {
       });
     });
 
-    // Date Filter
     this.elements.dateFilter.addEventListener('change', () => {
       if (this.elements.viewToggle.checked) this.loadAnalytics();
     });
 
-    // Logout
     this.elements.logoutBtn.addEventListener('click', async () => {
       await fetch('/api/admin/auth', { method: 'DELETE' });
       window.location.href = '/admin/login.html';
     });
 
-    // Modal Close
     [this.elements.closeModalBtn, this.elements.cancelModalBtn].forEach(btn => {
       btn.addEventListener('click', () => this.elements.modalOverlay.classList.add('hidden'));
     });
 
-    // Pagination Clicks
     this.elements.paginationContainer.addEventListener('click', (e) => {
       if (e.target.classList.contains('page-btn')) {
         this.state.currentPage = parseInt(e.target.dataset.page);
@@ -111,29 +101,26 @@ const DashboardApp = {
       }
     });
 
-    // Add New Visitor
-    this.elements.addNewBtn.addEventListener('click', () => {
-      this.openModal('add', 'visitor', null);
-    });
+    this.elements.addNewBtn.addEventListener('click', () => this.openModal('add', 'visitor', null));
 
-    // Table Actions (Edit/Delete)
+    // Table Actions (Edit/Delete/Journey)
     this.elements.tableBody.addEventListener('click', (e) => {
       const btn = e.target.closest('.action-btn');
       if (!btn) return;
       const id = btn.dataset.id;
       const type = btn.dataset.type;
+      
       if (btn.classList.contains('edit-btn')) this.openModal('edit', type, id);
       else if (btn.classList.contains('delete-btn')) this.openModal('delete', type, id);
+      else if (btn.classList.contains('journey-btn')) this.openJourneyModal(id);
     });
 
-    // Submit Modal
     this.elements.modalForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       await this.handleModalSubmit();
     });
   },
 
-  // --- Data Management Functions ---
   async loadCurrentTabData() {
     if (this.state.isLoading) return;
     const { currentTab, currentPage, limit } = this.state;
@@ -163,15 +150,16 @@ const DashboardApp = {
       headers = `<tr><th>Fingerprint</th><th>Name / Email</th><th>Clinic Size</th><th>Status</th><th>Last Seen</th><th>Actions</th></tr>`;
       rows = data.map(v => `
         <tr>
-          <td title="${v.fingerprint_id}">${v.fingerprint_id.substring(0, 15)}...</td>
+          <td title="${v.fingerprint_id}">${v.fingerprint_id.substring(0, 12)}...</td>
           <td><strong>${v.identified_name || '-'}</strong><br><small>${v.identified_email || '-'}</small></td>
           <td>${v.clinic_size || '-'}</td>
           <td>
             ${v.is_hot_lead ? '<span style="color:var(--success)">🔥 Hot</span>' : '-'}
-            ${v.is_identified ? '<span style="color:var(--accent)"> Identified</span>' : '<span style="color:var(--text-muted)"> Anonymous</span>'}
+            ${v.is_identified ? '<span style="color:var(--accent)"> Identified</span>' : '<span style="color:var(--text-muted)"> Anon</span>'}
           </td>
           <td>${new Date(v.last_seen_at).toLocaleDateString()}</td>
           <td>
+            <button class="action-btn journey-btn" data-id="${v.fingerprint_id}" data-type="visitor" style="background:var(--accent); color:white;">Journey 🗺️</button>
             <button class="action-btn edit-btn" data-id="${v.fingerprint_id}" data-type="visitor">Edit</button>
             <button class="action-btn delete-btn" data-id="${v.fingerprint_id}" data-type="visitor">Del</button>
           </td>
@@ -182,8 +170,8 @@ const DashboardApp = {
       headers = `<tr><th>Session ID</th><th>Fingerprint</th><th>Entry</th><th>Duration</th><th>Scroll</th><th>Bounce</th><th>Actions</th></tr>`;
       rows = data.map(s => `
         <tr>
-          <td title="${s.session_id}">${s.session_id.substring(0, 10)}...</td>
-          <td title="${s.fingerprint_id}">${s.fingerprint_id.substring(0, 10)}...</td>
+          <td title="${s.session_id}">${s.session_id.substring(0, 8)}...</td>
+          <td title="${s.fingerprint_id}">${s.fingerprint_id.substring(0, 8)}...</td>
           <td>${s.entry_page}</td>
           <td>${s.duration_sec}s</td>
           <td>${s.max_scroll_pct}%</td>
@@ -197,9 +185,9 @@ const DashboardApp = {
       rows = data.map(e => `
         <tr>
           <td>${e.event_id}</td>
-          <td title="${e.fingerprint_id}">${e.fingerprint_id.substring(0, 10)}...</td>
+          <td title="${e.fingerprint_id}">${e.fingerprint_id.substring(0, 8)}...</td>
           <td><strong>${e.event_type}</strong></td>
-          <td>${e.event_value ? e.event_value.substring(0, 30) : '-'}</td>
+          <td>${e.event_value ? e.event_value.substring(0, 20) : '-'}</td>
           <td>${new Date(e.created_at).toLocaleString()}</td>
           <td><button class="action-btn delete-btn" data-id="${e.event_id}" data-type="event">Del</button></td>
         </tr>
@@ -267,9 +255,67 @@ const DashboardApp = {
     this.elements.modalOverlay.classList.remove('hidden');
   },
 
+  // 🚀 دالة استكشاف الرحلة (Timeline)
+  async openJourneyModal(fp) {
+    this.state.currentAction = { type: 'journey', action: 'journey', id: fp };
+    this.elements.modalTitle.textContent = 'Visitor Journey 🗺️';
+    this.elements.confirmModalBtn.textContent = 'Close';
+    this.elements.confirmModalBtn.classList.remove('danger-btn');
+    this.elements.confirmModalBtn.classList.add('primary-btn');
+    this.elements.modalFields.innerHTML = '<p style="text-align:center; color:var(--text-muted)">Loading journey...</p>';
+    this.elements.modalOverlay.classList.remove('hidden');
+
+    try {
+      const res = await fetch(`/api/admin/journey?fp=${fp}`);
+      if (res.status === 401) { window.location.href = '/admin/login.html'; return; }
+      const result = await res.json();
+
+      const visitor = result.visitor || {};
+      const timeline = result.timeline || [];
+
+      let timelineHTML = `
+        <div class="journey-header">
+          <h4>${visitor.identified_name || 'Anonymous Visitor'}</h4>
+          <p>Email: ${visitor.identified_email || 'N/A'} | Source: ${visitor.first_source || 'Direct'}</p>
+        </div>
+        <div class="timeline">
+      `;
+
+      if (timeline.length === 0) {
+        timelineHTML += '<p style="text-align:center">No activity recorded yet.</p>';
+      } else {
+        timeline.forEach(item => {
+          timelineHTML += `
+            <div class="timeline-item">
+              <div class="timeline-icon">${item.icon}</div>
+              <div class="timeline-content">
+                <div class="timeline-time">${new Date(item.time).toLocaleString()}</div>
+                <div class="timeline-details">${item.details}</div>
+              </div>
+            </div>
+          `;
+        });
+      }
+
+      timelineHTML += '</div>';
+      this.elements.modalFields.innerHTML = timelineHTML;
+
+    } catch (error) {
+      this.elements.modalFields.innerHTML = '<p style="color:var(--danger)">Error loading journey.</p>';
+    }
+  },
+
   async handleModalSubmit() {
-    const { action, type } = this.state.currentAction;
+    const { action } = this.state.currentAction;
+    
+    // إذا كانت النافذة مخصصة للرحلة (Journey)، أغلقها فقط
+    if (action === 'journey') {
+      this.elements.modalOverlay.classList.add('hidden');
+      return;
+    }
+
     const submitBtn = this.elements.confirmModalBtn;
+    const { type } = this.state.currentAction;
     let endpoint = '', method = '', body = {};
 
     this.setButtonLoading(submitBtn, true);
@@ -332,6 +378,7 @@ const DashboardApp = {
       const result = await res.json();
       this.renderKPIs(result.kpis);
       this.renderChart(result.chart);
+      this.renderSources(result.sources);
     } catch (error) {
       this.showToast('Failed to load analytics', 'error');
     }
@@ -369,6 +416,38 @@ const DashboardApp = {
       <h3 class="chart-title">Daily Visits (Last 7 Days)</h3>
       <div class="bar-chart">${barsHTML}</div>
     `;
+  },
+
+  // 🚀 رسم بطاقات المصادر (Traffic Sources)
+  renderSources(sources) {
+    if (!sources || sources.length === 0) {
+      this.elements.sourcesContainer.innerHTML = '<p style="text-align:center; color:var(--text-muted)">No source data</p>';
+      return;
+    }
+
+    let html = '<h3 class="chart-title">Traffic Sources</h3>';
+    
+    sources.forEach(s => {
+      let color = '#64748b'; // Default gray
+      if (s.name === 'cold_email' || s.name === 'email') color = '#ef4444'; // Red for email
+      else if (s.name === 'facebook') color = '#3b82f6'; // Blue for FB
+      
+      const cleanName = s.name.replace('_', ' ');
+      
+      html += `
+        <div class="source-item">
+          <div class="source-header">
+            <span style="text-transform:capitalize">${cleanName}</span>
+            <span>${s.percentage}% (${s.count})</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" style="width: ${s.percentage}%; background: ${color};"></div>
+          </div>
+        </div>
+      `;
+    });
+
+    this.elements.sourcesContainer.innerHTML = html;
   }
 };
 
