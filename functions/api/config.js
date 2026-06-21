@@ -12,7 +12,7 @@ export const TELEGRAM_CHAT_ID = '7203463194';
 export const GOOGLE_SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwCSBtTxJVafochcb5tKHjPXTUdUjHaKlP0HOgO75iqojNcR9BwnCKCMot7GgCasXkSBQ/exec';
 
 // 4. إعدادات الأفلييت والتحميل (يجب عليك تعبئتها)
-export const GHL_AFFILIATE_LINK = 'https://affiliate.gohighlevel.com?sref=tsio91u'; // ⚠️ ضع هنا رابط الأفلييت الخاص بك في GHL
+export const GHL_AFFILIATE_LINK = 'https://www.gohighlevel.com/?fp_ref=robert-blackwood'; // ⚠️ ضع هنا رابط الأفلييت الخاص بك في GHL
 export const FILES_MAP = {
   // ⚠️ ضع هنا رابط مباشر لملف الـ PDF الذي سيعطيه الزائر بعد التسجيل
   'ghl-setup-guide': 'https://your-storage.com/files/ghl-setup-guide.pdf' 
