@@ -34,17 +34,16 @@ export async function onRequestGet(context) {
 
     const isoFrom = fromDate.toISOString();
 
-    // 1. جلب الأرقام الرئيسية (KPIs)
+    // 1. جلب الأرقام الرئيسية (KPIs) من الجداول الجديدة
     const totalVisits = await getCount('sessions', `started_at=gte.${isoFrom}`);
-    const totalVisitors = await getCount('visitors', `last_seen_at=gte.${isoFrom}`);
-    const totalLeads = await getCount('visitors', `identified_email=not.is.null&last_seen_at=gte.${isoFrom}`);
+    const totalVisitors = await getCount('visitor_profiles', `last_seen_at=gte.${isoFrom}`);
+    const totalLeads = await getCount('visitor_profiles', `is_identified=eq.true&last_seen_at=gte.${isoFrom}`);
     const totalClicks = await getCount('events', `event_type=eq.affiliate_redirect&created_at=gte.${isoFrom}`);
-    const totalEmailOpens = await getCount('events', `event_type=eq.email_open&created_at=gte.${isoFrom}`);
     
     const totalBounces = await getCount('sessions', `is_bounce=eq.true&started_at=gte.${isoFrom}`);
     const bounceRate = totalVisits > 0 ? Math.round((totalBounces / totalVisits) * 100) : 0;
 
-    // 2. جلب بيانات المخطط الزمني
+    // 2. جلب بيانات المخطط الزمني (آخر 7 أيام)
     const chartDays = 7;
     const chartFromDate = new Date();
     chartFromDate.setDate(now.getDate() - chartDays);
@@ -72,15 +71,15 @@ export async function onRequestGet(context) {
       date: date.substring(5), visits: count
     })).reverse();
 
-    // 3. 🚀 حساب مصادر الزيارات (Traffic Sources)
-    const sourcesRes = await fetch(`${SUPABASE_URL}/rest/v1/visitors?select=first_source&last_seen_at=gte.${isoFrom}`, {
+    // 3. حساب مصادر الزيارات (Traffic Sources) من جدول acquisitions
+    const sourcesRes = await fetch(`${SUPABASE_URL}/rest/v1/acquisitions?select=source&first_visit_at=gte.${isoFrom}`, {
       headers: supabaseHeaders
     });
     const sourcesData = await sourcesRes.json();
     
     const sourceCounts = {};
     sourcesData.forEach(v => {
-      const source = v.first_source || 'direct';
+      const source = v.source || 'direct';
       sourceCounts[source] = (sourceCounts[source] || 0) + 1;
     });
 
@@ -92,7 +91,7 @@ export async function onRequestGet(context) {
     })).sort((a, b) => b.count - a.count);
 
     return new Response(JSON.stringify({ 
-      kpis: { totalVisits, totalVisitors, totalLeads, totalClicks, totalEmailOpens, bounceRate },
+      kpis: { totalVisits, totalVisitors, totalLeads, totalClicks, bounceRate },
       chart: chartArray,
       sources: sourcesArray
     }), {
