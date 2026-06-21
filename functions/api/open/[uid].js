@@ -1,6 +1,6 @@
 // functions/api/open/[uid].js
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID } from '../../config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID } from '../config.js';
 
 const supabaseHeaders = {
   'apikey': SUPABASE_ANON_KEY,
@@ -33,24 +33,23 @@ export async function onRequestGet(context) {
     const deviceInfo = parseUserAgent(userAgent);
 
     // 1. جلب بيانات الزائر لمعرفة الإيميل والاسم (للتليجرام)
-    const visitorRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=identified_name,identified_email`, { headers: supabaseHeaders });
+    const visitorRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=identified_name,identified_email,total_email_opens`, { headers: supabaseHeaders });
     const visitor = (await visitorRes.json())[0] || {};
 
     // 2. Upsert لجدول نشاط الإيميلات
     const emailActivityData = {
       uid: uid,
-      campaign_name: 'cold_outreach', // افتراضي، يمكن تمريره كـ Query Param لاحقاً
+      campaign_name: 'cold_outreach',
       email_address: visitor.identified_email || null,
       first_open_at: new Date().toISOString(),
       last_open_at: new Date().toISOString(),
-      open_count: 1, // سيتم تجاهله إذا كان موجوداً وسنحدّثه يدوياً
+      open_count: 1,
       country: country,
       city: city,
       device_type: deviceInfo.device_type,
       operating_system: deviceInfo.operating_system
     };
 
-    // محاولة الإدراج، إذا كان موجوداً نجلب العدد ونحدثه
     const checkExistRes = await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.cold_outreach&select=open_count`, { headers: supabaseHeaders });
     const existData = await checkExistRes.json();
     
@@ -76,13 +75,8 @@ export async function onRequestGet(context) {
       body: JSON.stringify({ uid: uid, event_type: 'email_open', event_value: 'cold_outreach' })
     });
 
-    // 4. تحديث total_email_opens في ملف الزائر (Fetch -> Increment -> Patch)
-    const newTotalOpens = (visitor.total_email_opens || 0) + 1; // ملاحظة: القيمة القديمة تحتاج لجلبها
-    // لتجنب خطأ التزامن (Race Condition)، نجلب العدد الحالي أولاً
-    const countRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=total_email_opens`, { headers: supabaseHeaders });
-    const countData = await countRes.json();
-    const currentOpens = countData[0]?.total_email_opens || 0;
-
+    // 4. تحديث total_email_opens في ملف الزائر
+    const currentOpens = visitor.total_email_opens || 0;
     context.waitUntil(fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
       method: 'PATCH',
       headers: supabaseHeaders,
