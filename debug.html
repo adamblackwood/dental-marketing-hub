@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Data Viewer</title>
+    <style>
+        body { font-family: monospace; background: #f8f9fa; padding: 20px; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #0f172a; color: white; border: none; border-radius: 5px; margin-bottom: 20px; }
+        button:hover { background: #1e293b; }
+        .card { background: white; padding: 15px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid #0f172a; }
+        h2 { margin-top: 0; color: #0f172a; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        pre { white-space: pre-wrap; word-wrap: break-word; font-size: 13px; color: #334155; }
+    </style>
+</head>
+<body>
+
+    <button onclick="loadData()">Fetch Latest 10 Records (All Tables)</button>
+    <div id="output"><p>Click the button to load data...</p></div>
+
+    <script>
+        async function loadData() {
+            document.getElementById('output').innerHTML = '<p>Loading data...</p>';
+            try {
+                const res = await fetch('/api/debug');
+                const data = await res.json();
+                
+                let html = '';
+                const tables = [
+                    { name: '1. Visitor Profiles', data: data.visitors },
+                    { name: '2. Acquisitions', data: data.acquisitions },
+                    { name: '3. Visits', data: data.visits },
+                    { name: '4. Sessions', data: data.sessions },
+                    { name: '5. Email Activities', data: data.emails },
+                    { name: '6. Events', data: data.events }
+                ];
+
+                tables.forEach(t => {
+                    const count = t.data ? t.data.length : 0;
+                    html += `<div class="card"><h2>${t.name} (${count} rows)</h2><pre>${JSON.stringify(t.data, null, 2)}</pre></div>`;
+                });
+
+                document.getElementById('output').innerHTML = html;
+            } catch (e) {
+                document.getElementById('output').innerHTML = `<div class="card"><pre style="color:red;">Error: ${e.message}</pre></div>`;
+            }
+        }
+    </script>
+</body>
+</html>
