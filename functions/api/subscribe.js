@@ -18,16 +18,23 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400 });
     }
 
-    // 1. تحديث ملف الزائر بالبيانات المعروفة
+    // 1. جلب النقاط والتحويلات الحالية لتجنب التراكم الخاطئ
+    const vRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=lead_score,total_conversions`, { headers: supabaseHeaders });
+    const vData = await vRes.json();
+    const currentScore = Number(vData[0]?.lead_score || 0);
+    const currentConversions = Number(vData[0]?.total_conversions || 0);
+
+    // 2. تحديث ملف الزائر بالبيانات المعروفة وزيادة التحويلات والنقاط
     const visitorData = {
       identified_email: email,
       identified_name: name || null,
-      clinic_size: clinic_size || null, // ملاحظة: أضفنا هذا العمود في SQL الإضافي
+      clinic_size: clinic_size || null,
       biggest_challenge: biggest_challenge || null,
       phone_number: phone_number || null,
       is_identified: true,
       lead_status: 'hot',
-      lead_score: 50, // نقاط أساسية للتسجيل
+      lead_score: currentScore + 50, // إضافة 50 نقطة للتسجيل
+      total_conversions: currentConversions + 1, // زيادة التحويلات
       last_seen_at: new Date().toISOString()
     };
 
@@ -37,7 +44,7 @@ export async function onRequestPost(context) {
       body: JSON.stringify(visitorData)
     }));
 
-    // 2. إدراج حدث التسجيل
+    // 3. إدراج حدث التسجيل
     const eventData = {
       uid: uid,
       event_type: 'form_submit',
@@ -49,7 +56,7 @@ export async function onRequestPost(context) {
       body: JSON.stringify(eventData)
     }));
 
-    // 3. تنبيه تليجرام
+    // 4. تنبيه تليجرام
     const msg = `🟢 <b>New Lead</b>\nName: ${name || 'N/A'}\nEmail: ${email}\nClinic Size: ${clinic_size || 'N/A'}\nUID: <code>${uid}</code>`;
     context.waitUntil(fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
       method: 'POST',
@@ -57,7 +64,7 @@ export async function onRequestPost(context) {
       body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: msg, parse_mode: 'HTML' })
     }));
 
-    // 4. جوجل شيتس
+    // 5. جوجل شيتس
     const sheetsData = { timestamp: new Date().toISOString(), email, name: name || '', clinic_size: clinic_size || '', fingerprint_id: uid };
     context.waitUntil(fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
       method: 'POST',

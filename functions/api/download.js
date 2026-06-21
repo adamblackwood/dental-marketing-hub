@@ -27,11 +27,11 @@ export async function onRequestPost(context) {
       body: JSON.stringify(eventData)
     }));
 
-    // 2. زيادة التحويلات والنقاط في ملف الزائر
+    // 2. زيادة التحويلات والنقاط (تصحيح العمليات الحسابية)
     const vRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=total_conversions,lead_score`, { headers: supabaseHeaders });
     const vData = await vRes.json();
-    const currentConversions = vData[0]?.total_conversions || 0;
-    const currentScore = vData[0]?.lead_score || 0;
+    const currentConversions = Number(vData[0]?.total_conversions || 0);
+    const currentScore = Number(vData[0]?.lead_score || 0);
 
     context.waitUntil(fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
       method: 'PATCH',

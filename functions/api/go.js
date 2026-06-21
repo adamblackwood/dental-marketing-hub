@@ -19,7 +19,7 @@ export async function onRequestGet(context) {
     const cf = context.request.cf || {};
     const country = cf.country || 'Unknown';
 
-    // 1. إدراج الحدث في Events
+    // 1. إدراج الحدث
     const eventData = {
       uid: uid,
       session_id: session_id,
@@ -33,15 +33,15 @@ export async function onRequestGet(context) {
       body: JSON.stringify(eventData)
     }));
 
-    // 2. تحديث ملف الزائر (زيادة التحويلات، رفع النقاط، تغيير الحالة)
-    // نجلب النقاط الحالية أولاً لتجنب التزامن
+    // 2. تحديث ملف الزائر (تصحيح العمليات الحسابية)
     const vRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=total_conversions,lead_score`, { headers: supabaseHeaders });
     const vData = await vRes.json();
-    const currentConversions = vData[0]?.total_conversions || 0;
+    const currentConversions = Number(vData[0]?.total_conversions || 0);
+    const currentScore = Number(vData[0]?.lead_score || 0);
     
     const visitorUpdate = {
       total_conversions: currentConversions + 1,
-      lead_score: (vData[0]?.lead_score || 0) + 20,
+      lead_score: currentScore + 20,
       lead_status: 'hot',
       last_seen_at: new Date().toISOString()
     };

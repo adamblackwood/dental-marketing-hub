@@ -9,7 +9,6 @@ const supabaseHeaders = {
   'Prefer': 'return=minimal'
 };
 
-// دالة مساعدة لتحليل User-Agent واستخراج بيانات الجهاز
 function parseUserAgent(ua) {
   const device_type = /Mobi|Android|iPhone/i.test(ua) ? 'mobile' : (/iPad|Tablet/i.test(ua) ? 'tablet' : 'desktop');
   let browser = 'other';
@@ -29,7 +28,6 @@ function parseUserAgent(ua) {
 
 export async function onRequestPost(context) {
   try {
-    // دعم إرسال البيانات عبر sendBeacon (التي تأتي كـ Blob أو Text)
     let payload;
     const contentType = context.request.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
@@ -39,14 +37,12 @@ export async function onRequestPost(context) {
       try { payload = JSON.parse(text); } catch(e) { payload = {}; }
     }
 
-    const { type, fingerprint_id, session_id, uid } = payload;
+    const { type, session_id, uid } = payload;
 
-    // التحقق من البيانات الأساسية
     if (!type || !session_id) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400 });
     }
 
-    // استخراج بيانات Cloudflare الجغرافية
     const cf = context.request.cf || {};
     const country = cf.country || 'Unknown';
     const city = cf.city || 'Unknown';
@@ -55,20 +51,13 @@ export async function onRequestPost(context) {
 
     switch (type) {
       case 'session_start': {
-        // 1. التأكد من وجود UID (إذا لم يرسل الـ Frontend واحداً، نولده في السيرفر)
         const finalUid = uid || `uid_${crypto.randomUUID().split('-')[0]}`;
         
-        // 2. Upsert لملف الزائر
+        // 1. Upsert الزائر
         const visitorData = {
           uid: finalUid,
-          fingerprint_id: fingerprint_id || null,
           last_seen_at: new Date().toISOString()
         };
-        
-        // منطق الدمج: إذا كان هناك بصمة قديمة (cold_) نحدثها
-        if (fingerprint_id && fingerprint_id.startsWith('cold_')) {
-           // نترك الـ UID كما هو، ونحدث البصمة فقط لاحقاً عبر طلب منفصل إذا لزم الأمر
-        }
 
         await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?on_conflict=uid`, {
           method: 'POST',
@@ -76,13 +65,23 @@ export async function onRequestPost(context) {
           body: JSON.stringify(visitorData)
         });
 
+        // 2. زيادة عداد الزيارات (Fetch -> Increment -> Patch)
+        const vCountRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${finalUid}&select=total_visits`, { headers: supabaseHeaders });
+        const vCountData = await vCountRes.json();
+        const currentVisits = vCountData[0]?.total_visits || 0;
+
+        context.waitUntil(fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${finalUid}`, {
+          method: 'PATCH',
+          headers: supabaseHeaders,
+          body: JSON.stringify({ total_visits: currentVisits + 1 })
+        }));
+
         // 3. معالجة المصدر (Acquisition)
         let acquisitionId = null;
         if (payload.utm_campaign || payload.utm_source) {
           const source = payload.utm_source || 'direct';
           const campaign = payload.utm_campaign || 'unknown';
           
-          // محاولة إدراج المصدر (سيتجاهله إذا كان مكرراً بفضل Unique Constraint)
           const acqData = {
             uid: finalUid,
             source: source,
@@ -94,7 +93,6 @@ export async function onRequestPost(context) {
             city: city
           };
 
-          // استخدام UPSERT مع ON CONFLICT لضمان عدم التكرار
           const acqRes = await fetch(`${SUPABASE_URL}/rest/v1/acquisitions?on_conflict=uid,utm_campaign&select=acquisition_id`, {
             method: 'POST',
             headers: { ...supabaseHeaders, 'Prefer': 'resolution=merge-duplicates' },
@@ -105,7 +103,6 @@ export async function onRequestPost(context) {
           if (acqDataRes && acqDataRes.length > 0) {
             acquisitionId = acqDataRes[0].acquisition_id;
           } else {
-            // إذا كان موجوداً مسبقاً، نجلب الـ ID
             const getAcq = await fetch(`${SUPABASE_URL}/rest/v1/acquisitions?uid=eq.${finalUid}&utm_campaign=eq.${campaign}&select=acquisition_id`, { headers: supabaseHeaders });
             const getAcqData = await getAcq.json();
             if (getAcqData.length > 0) acquisitionId = getAcqData[0].acquisition_id;
@@ -151,24 +148,17 @@ export async function onRequestPost(context) {
       }
 
       case 'heartbeat': {
-        // تحديث الجلسة والزيارة فقط (منع التضخم)
         const heartbeatData = {
           duration_sec: payload.duration_sec,
           last_activity_at: new Date().toISOString(),
           is_bounce: false
         };
         
-        // جلب visit_id من الجلسة لتحديث الزيارة أيضاً
-        const sessRes = await fetch(`${SUPABASE_URL}/rest/v1/sessions?session_id=eq.${session_id}&select=visit_id`, { headers: supabaseHeaders });
-        const sessData = await sessRes.json();
-        
-        if (sessData.length > 0) {
-          const visitId = sessData[0].visit_id;
-          context.waitUntil(Promise.all([
-            fetch(`${SUPABASE_URL}/rest/v1/sessions?session_id=eq.${session_id}`, { method: 'PATCH', headers: supabaseHeaders, body: JSON.stringify(heartbeatData) }),
-            fetch(`${SUPABASE_URL}/rest/v1/visits?visit_id=eq.${visitId}`, { method: 'PATCH', headers: supabaseHeaders, body: JSON.stringify({ duration_sec: payload.duration_sec, updated_at: new Date().toISOString(), is_bounce: false }) })
-          ]));
-        }
+        context.waitUntil(fetch(`${SUPABASE_URL}/rest/v1/sessions?session_id=eq.${session_id}`, { 
+            method: 'PATCH', 
+            headers: supabaseHeaders, 
+            body: JSON.stringify(heartbeatData) 
+        }));
         break;
       }
 
@@ -178,16 +168,11 @@ export async function onRequestPost(context) {
           is_bounce: false
         };
         
-        const sessRes = await fetch(`${SUPABASE_URL}/rest/v1/sessions?session_id=eq.${session_id}&select=visit_id`, { headers: supabaseHeaders });
-        const sessData = await sessRes.json();
-        
-        if (sessData.length > 0) {
-          const visitId = sessData[0].visit_id;
-          context.waitUntil(Promise.all([
-            fetch(`${SUPABASE_URL}/rest/v1/sessions?session_id=eq.${session_id}`, { method: 'PATCH', headers: supabaseHeaders, body: JSON.stringify(scrollData) }),
-            fetch(`${SUPABASE_URL}/rest/v1/visits?visit_id=eq.${visitId}`, { method: 'PATCH', headers: supabaseHeaders, body: JSON.stringify(scrollData) })
-          ]));
-        }
+        context.waitUntil(fetch(`${SUPABASE_URL}/rest/v1/sessions?session_id=eq.${session_id}`, { 
+            method: 'PATCH', 
+            headers: supabaseHeaders, 
+            body: JSON.stringify(scrollData) 
+        }));
         break;
       }
 
@@ -207,7 +192,6 @@ export async function onRequestPost(context) {
           context.waitUntil(Promise.all([
             fetch(`${SUPABASE_URL}/rest/v1/sessions?session_id=eq.${session_id}`, { method: 'PATCH', headers: supabaseHeaders, body: JSON.stringify(exitData) }),
             fetch(`${SUPABASE_URL}/rest/v1/visits?visit_id=eq.${visitId}`, { method: 'PATCH', headers: supabaseHeaders, body: JSON.stringify({ ...exitData, exit_page: payload.exit_page, updated_at: new Date().toISOString() }) }),
-            // تحديث أعلى سكرول في ملف الزائر
             fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${payload.uid}`, { method: 'PATCH', headers: supabaseHeaders, body: JSON.stringify({ max_scroll_ever_pct: payload.max_scroll_pct }) })
           ]));
         }
