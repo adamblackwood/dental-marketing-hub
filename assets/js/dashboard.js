@@ -1,4 +1,4 @@
-// assets/js/dashboard.js - FINAL VERSION WITH JOURNEY & SOURCES
+// assets/js/dashboard.js - FINAL ENTERPRISE VERSION
 
 const DashboardApp = {
   state: {
@@ -103,7 +103,6 @@ const DashboardApp = {
 
     this.elements.addNewBtn.addEventListener('click', () => this.openModal('add', 'visitor', null));
 
-    // Table Actions (Edit/Delete/Journey)
     this.elements.tableBody.addEventListener('click', (e) => {
       const btn = e.target.closest('.action-btn');
       if (!btn) return;
@@ -147,32 +146,37 @@ const DashboardApp = {
     let rows = '';
 
     if (type === 'visitors') {
-      headers = `<tr><th>Fingerprint</th><th>Name / Email</th><th>Clinic Size</th><th>Status</th><th>Last Seen</th><th>Actions</th></tr>`;
-      rows = data.map(v => `
-        <tr>
-          <td title="${v.fingerprint_id}">${v.fingerprint_id.substring(0, 12)}...</td>
-          <td><strong>${v.identified_name || '-'}</strong><br><small>${v.identified_email || '-'}</small></td>
-          <td>${v.clinic_size || '-'}</td>
-          <td>
-            ${v.is_hot_lead ? '<span style="color:var(--success)">🔥 Hot</span>' : '-'}
-            ${v.is_identified ? '<span style="color:var(--accent)"> Identified</span>' : '<span style="color:var(--text-muted)"> Anon</span>'}
-          </td>
-          <td>${new Date(v.last_seen_at).toLocaleDateString()}</td>
-          <td>
-            <button class="action-btn journey-btn" data-id="${v.fingerprint_id}" data-type="visitor" style="background:var(--accent); color:white;">Journey 🗺️</button>
-            <button class="action-btn edit-btn" data-id="${v.fingerprint_id}" data-type="visitor">Edit</button>
-            <button class="action-btn delete-btn" data-id="${v.fingerprint_id}" data-type="visitor">Del</button>
-          </td>
-        </tr>
-      `).join('');
+      // جدول الرادار الشامل (Visitor Profiles)
+      headers = `<tr><th>UID</th><th>Name / Email</th><th>Score</th><th>Status</th><th>Visits</th><th>Conv.</th><th>Last Seen</th><th>Actions</th></tr>`;
+      rows = data.map(v => {
+        const statusClass = v.lead_status === 'hot' ? 'badge-hot' : (v.lead_status === 'warm' ? 'badge-warm' : 'badge-cold');
+        const scoreClass = v.lead_score > 50 ? 'score-high' : '';
+        return `
+          <tr>
+            <td title="${v.uid}">${v.uid.substring(0, 12)}...</td>
+            <td><strong>${v.identified_name || 'Anonymous'}</strong><br><small>${v.identified_email || '-'}</small></td>
+            <td><div class="score-circle ${scoreClass}">${v.lead_score}</div></td>
+            <td><span class="badge ${statusClass}">${v.lead_status}</span></td>
+            <td>${v.total_visits}</td>
+            <td>${v.total_conversions}</td>
+            <td>${new Date(v.last_seen_at).toLocaleDateString()}</td>
+            <td>
+              <button class="action-btn journey-btn" data-id="${v.uid}" data-type="visitor" style="background:var(--accent); color:white;">360°</button>
+              <button class="action-btn edit-btn" data-id="${v.uid}" data-type="visitor">Edit</button>
+              <button class="action-btn delete-btn" data-id="${v.uid}" data-type="visitor">Del</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
     } 
     else if (type === 'sessions') {
-      headers = `<tr><th>Session ID</th><th>Fingerprint</th><th>Entry</th><th>Duration</th><th>Scroll</th><th>Bounce</th><th>Actions</th></tr>`;
+      headers = `<tr><th>Session ID</th><th>UID</th><th>Device</th><th>Location</th><th>Duration</th><th>Scroll</th><th>Bounce</th><th>Actions</th></tr>`;
       rows = data.map(s => `
         <tr>
           <td title="${s.session_id}">${s.session_id.substring(0, 8)}...</td>
-          <td title="${s.fingerprint_id}">${s.fingerprint_id.substring(0, 8)}...</td>
-          <td>${s.entry_page}</td>
+          <td title="${s.uid}">${s.uid.substring(0, 8)}...</td>
+          <td>${s.device_type}</td>
+          <td>${s.country}, ${s.city}</td>
           <td>${s.duration_sec}s</td>
           <td>${s.max_scroll_pct}%</td>
           <td>${s.is_bounce ? '<span style="color:var(--danger)">Yes</span>' : '<span style="color:var(--success)">No</span>'}</td>
@@ -181,11 +185,11 @@ const DashboardApp = {
       `).join('');
     } 
     else if (type === 'events') {
-      headers = `<tr><th>Event ID</th><th>Fingerprint</th><th>Type</th><th>Value</th><th>Date</th><th>Actions</th></tr>`;
+      headers = `<tr><th>Event ID</th><th>UID</th><th>Type</th><th>Value</th><th>Date</th><th>Actions</th></tr>`;
       rows = data.map(e => `
         <tr>
           <td>${e.event_id}</td>
-          <td title="${e.fingerprint_id}">${e.fingerprint_id.substring(0, 8)}...</td>
+          <td title="${e.uid}">${e.uid.substring(0, 8)}...</td>
           <td><strong>${e.event_type}</strong></td>
           <td>${e.event_value ? e.event_value.substring(0, 20) : '-'}</td>
           <td>${new Date(e.created_at).toLocaleString()}</td>
@@ -195,7 +199,7 @@ const DashboardApp = {
     }
 
     this.elements.tableHead.innerHTML = headers;
-    this.elements.tableBody.innerHTML = rows || `<tr><td colspan="6" style="text-align:center">No data found</td></tr>`;
+    this.elements.tableBody.innerHTML = rows || `<tr><td colspan="8" style="text-align:center">No data found</td></tr>`;
   },
 
   renderPagination() {
@@ -234,9 +238,8 @@ const DashboardApp = {
       const name = row.cells[1].querySelector('strong').textContent;
       const email = row.cells[1].querySelector('small').textContent;
       this.elements.modalFields.innerHTML = `
-        <div class="form-group"><label>Name</label><input type="text" id="modal-name" value="${name !== '-' ? name : ''}"></div>
+        <div class="form-group"><label>Name</label><input type="text" id="modal-name" value="${name !== 'Anonymous' ? name : ''}"></div>
         <div class="form-group"><label>Email</label><input type="email" id="modal-email" value="${email !== '-' ? email : ''}"></div>
-        <div class="form-group"><label>Clinic Size</label><input type="text" id="modal-clinic"></div>
         <div class="form-group"><label><input type="checkbox" id="modal-hot"> Mark as Hot Lead 🔥</label></div>
         <input type="hidden" id="modal-edit-id" value="${id}">
       `;
@@ -248,17 +251,16 @@ const DashboardApp = {
       this.elements.modalFields.innerHTML = `
         <div class="form-group"><label>Name</label><input type="text" id="modal-name" required></div>
         <div class="form-group"><label>Email</label><input type="email" id="modal-email" required></div>
-        <div class="form-group"><label>Clinic Size</label><input type="text" id="modal-clinic"></div>
         <div class="form-group"><label><input type="checkbox" id="modal-hot"> Mark as Hot Lead 🔥</label></div>
       `;
     }
     this.elements.modalOverlay.classList.remove('hidden');
   },
 
-  // 🚀 دالة استكشاف الرحلة (Timeline)
-  async openJourneyModal(fp) {
-    this.state.currentAction = { type: 'journey', action: 'journey', id: fp };
-    this.elements.modalTitle.textContent = 'Visitor Journey 🗺️';
+  // 🚀 دالة استكشاف الرحلة (Timeline 360)
+  async openJourneyModal(uid) {
+    this.state.currentAction = { type: 'journey', action: 'journey', id: uid };
+    this.elements.modalTitle.textContent = 'Visitor Journey 360° 🗺️';
     this.elements.confirmModalBtn.textContent = 'Close';
     this.elements.confirmModalBtn.classList.remove('danger-btn');
     this.elements.confirmModalBtn.classList.add('primary-btn');
@@ -266,7 +268,7 @@ const DashboardApp = {
     this.elements.modalOverlay.classList.remove('hidden');
 
     try {
-      const res = await fetch(`/api/admin/journey?fp=${fp}`);
+      const res = await fetch(`/api/admin/journey?uid=${uid}`);
       if (res.status === 401) { window.location.href = '/admin/login.html'; return; }
       const result = await res.json();
 
@@ -275,8 +277,8 @@ const DashboardApp = {
 
       let timelineHTML = `
         <div class="journey-header">
-          <h4>${visitor.identified_name || 'Anonymous Visitor'}</h4>
-          <p>Email: ${visitor.identified_email || 'N/A'} | Source: ${visitor.first_source || 'Direct'}</p>
+          <h4>${visitor.identified_name || 'Anonymous Visitor'} <span class="badge badge-${visitor.lead_status}">${visitor.lead_status}</span></h4>
+          <p>Email: ${visitor.identified_email || 'N/A'} | Score: ${visitor.lead_score} | Total Visits: ${visitor.total_visits} | Total Conversions: ${visitor.total_conversions}</p>
         </div>
         <div class="timeline">
       `;
@@ -287,7 +289,7 @@ const DashboardApp = {
         timeline.forEach(item => {
           timelineHTML += `
             <div class="timeline-item">
-              <div class="timeline-icon">${item.icon}</div>
+              <div class="timeline-icon timeline-icon-large">${item.icon}</div>
               <div class="timeline-content">
                 <div class="timeline-time">${new Date(item.time).toLocaleString()}</div>
                 <div class="timeline-details">${item.details}</div>
@@ -308,7 +310,6 @@ const DashboardApp = {
   async handleModalSubmit() {
     const { action } = this.state.currentAction;
     
-    // إذا كانت النافذة مخصصة للرحلة (Journey)، أغلقها فقط
     if (action === 'journey') {
       this.elements.modalOverlay.classList.add('hidden');
       return;
@@ -333,7 +334,6 @@ const DashboardApp = {
         body = {
           identified_name: document.getElementById('modal-name').value,
           identified_email: document.getElementById('modal-email').value,
-          clinic_size: document.getElementById('modal-clinic').value,
           is_hot_lead: document.getElementById('modal-hot').checked
         };
       }
@@ -343,7 +343,6 @@ const DashboardApp = {
         body = {
           name: document.getElementById('modal-name').value,
           email: document.getElementById('modal-email').value,
-          clinic_size: document.getElementById('modal-clinic').value,
           is_hot_lead: document.getElementById('modal-hot').checked
         };
       }
@@ -385,12 +384,12 @@ const DashboardApp = {
   },
 
   renderKPIs(kpis) {
-    document.getElementById('kpi-visits').textContent = kpis.totalVisits.toLocaleString();
-    document.getElementById('kpi-visitors').textContent = kpis.totalVisitors.toLocaleString();
-    document.getElementById('kpi-leads').textContent = kpis.totalLeads.toLocaleString();
-    document.getElementById('kpi-clicks').textContent = kpis.totalClicks.toLocaleString();
+    document.getElementById('kpi-visits').textContent = (kpis.totalVisits || 0).toLocaleString();
+    document.getElementById('kpi-visitors').textContent = (kpis.totalVisitors || 0).toLocaleString();
+    document.getElementById('kpi-leads').textContent = (kpis.totalLeads || 0).toLocaleString();
+    document.getElementById('kpi-clicks').textContent = (kpis.totalClicks || 0).toLocaleString();
     const bounceEl = document.getElementById('kpi-bounce');
-    bounceEl.textContent = `${kpis.bounceRate}%`;
+    bounceEl.textContent = `${kpis.bounceRate || 0}%`;
     bounceEl.style.color = kpis.bounceRate > 60 ? 'var(--danger)' : 'var(--success)';
   },
 
@@ -418,7 +417,6 @@ const DashboardApp = {
     `;
   },
 
-  // 🚀 رسم بطاقات المصادر (Traffic Sources)
   renderSources(sources) {
     if (!sources || sources.length === 0) {
       this.elements.sourcesContainer.innerHTML = '<p style="text-align:center; color:var(--text-muted)">No source data</p>';
@@ -428,9 +426,9 @@ const DashboardApp = {
     let html = '<h3 class="chart-title">Traffic Sources</h3>';
     
     sources.forEach(s => {
-      let color = '#64748b'; // Default gray
-      if (s.name === 'cold_email' || s.name === 'email') color = '#ef4444'; // Red for email
-      else if (s.name === 'facebook') color = '#3b82f6'; // Blue for FB
+      let color = '#64748b'; 
+      if (s.name === 'cold_email' || s.name === 'email') color = '#ef4444'; 
+      else if (s.name === 'facebook') color = '#3b82f6'; 
       
       const cleanName = s.name.replace('_', ' ');
       

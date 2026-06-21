@@ -1,8 +1,8 @@
 // functions/api/config.js
 
 // 1. إعدادات Supabase (تم وضع بياناتك)
-export const SUPABASE_URL = 'https://stddyldsvyuafdsqmbnh.supabase.co';
-export const SUPABASE_ANON_KEY = 'sb_publishable_4_BUKbjLco5r-27IoxjlAQ_YKsuibZ5';
+export const SUPABASE_URL = 'https://vrqpshvlwtxvnbdwwfss.supabase.co';
+export const SUPABASE_ANON_KEY = 'sb_publishable_KsDqW-jirTZVJQPv-y-jeA_doTRI0Ci';
 
 // 2. إعدادات Telegram (تم وضع بياناتك)
 export const TELEGRAM_TOKEN = '8424656659:AAEbo9X2Kuw1QZDRPyu_Uy-SNg6T36vQoRg';

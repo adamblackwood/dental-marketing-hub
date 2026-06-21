@@ -9,54 +9,62 @@ const supabaseHeaders = {
   'Prefer': 'return=minimal'
 };
 
-async function sendTelegram(text) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
-  await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'HTML' })
-  });
-}
-
 export async function onRequestGet(context) {
   try {
     const url = new URL(context.request.url);
     const target = url.searchParams.get('target') || 'ghl';
-    const fingerprint_id = url.searchParams.get('fp') || 'unknown';
-    const session_id = url.searchParams.get('sid') || 'unknown';
+    const uid = url.searchParams.get('uid') || 'unknown';
+    const session_id = url.searchParams.get('sid') || null;
 
     const cf = context.request.cf || {};
     const country = cf.country || 'Unknown';
-    const region = cf.region || 'Unknown';
 
-    const utm_source = url.searchParams.get('utm_source') || null;
-    const utm_campaign = url.searchParams.get('utm_campaign') || null;
-
+    // 1. إدراج الحدث في Events
     const eventData = {
+      uid: uid,
       session_id: session_id,
-      fingerprint_id: fingerprint_id,
       event_type: 'affiliate_redirect',
-      event_value: target,
-      created_at: new Date().toISOString()
+      event_value: target
     };
     
-    await fetch(`${SUPABASE_URL}/rest/v1/events`, {
+    context.waitUntil(fetch(`${SUPABASE_URL}/rest/v1/events`, {
       method: 'POST',
       headers: supabaseHeaders,
       body: JSON.stringify(eventData)
-    });
+    }));
 
-    const msg = `🔥 <b>Affiliate Click</b>\nTarget: ${target}\nCountry: ${country} | Region: ${region}\nFP: <code>${fingerprint_id}</code>`;
-    context.waitUntil(sendTelegram(msg));
+    // 2. تحديث ملف الزائر (زيادة التحويلات، رفع النقاط، تغيير الحالة)
+    // نجلب النقاط الحالية أولاً لتجنب التزامن
+    const vRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=total_conversions,lead_score`, { headers: supabaseHeaders });
+    const vData = await vRes.json();
+    const currentConversions = vData[0]?.total_conversions || 0;
+    
+    const visitorUpdate = {
+      total_conversions: currentConversions + 1,
+      lead_score: (vData[0]?.lead_score || 0) + 20,
+      lead_status: 'hot',
+      last_seen_at: new Date().toISOString()
+    };
 
+    context.waitUntil(fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
+      method: 'PATCH',
+      headers: supabaseHeaders,
+      body: JSON.stringify(visitorUpdate)
+    }));
+
+    // 3. إرسال تليجرام
+    const msg = `🔥 <b>Affiliate Click</b>\nTarget: ${target}\nCountry: ${country}\nUID: <code>${uid}</code>`;
+    context.waitUntil(fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: msg, parse_mode: 'HTML' })
+    }));
+
+    // 4. Redirect 302
     const redirectUrl = new URL(GHL_AFFILIATE_LINK);
-    if (utm_source) redirectUrl.searchParams.set('utm_source', utm_source);
-    if (utm_campaign) redirectUrl.searchParams.set('utm_campaign', utm_campaign);
-
     return Response.redirect(redirectUrl.toString(), 302);
 
   } catch (error) {
-    console.error('Go Redirect Error:', error);
     return Response.redirect(GHL_AFFILIATE_LINK, 302);
   }
 }

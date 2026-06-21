@@ -1,15 +1,14 @@
 // assets/js/main.js
 
 const SiteController = {
-  fingerprint: null,
+  uid: null,
   sessionId: null,
 
   init() {
-    this.fingerprint = localStorage.getItem('dmr_fp');
+    this.uid = localStorage.getItem('dmr_uid');
     this.sessionId = sessionStorage.getItem('dmr_session');
     
-    if (!this.fingerprint || !this.sessionId) {
-      // إذا لم يتم تحميل التتبع بعد، ننتظر قليلاً
+    if (!this.uid) {
       setTimeout(() => this.init(), 500);
       return;
     }
@@ -24,7 +23,8 @@ const SiteController = {
     if (!form) return;
 
     try {
-      const res = await fetch(`/api/profile-status?fp=${this.fingerprint}`);
+      // جلب حالة الزائر بناءً على الـ UID
+      const res = await fetch(`/api/profile-status?uid=${this.uid}`);
       if (!res.ok) throw new Error('Failed to fetch profile status');
       const data = await res.json();
 
@@ -33,25 +33,13 @@ const SiteController = {
       const advGroup = document.getElementById('group-advanced');
 
       if (data.is_known) {
-        // زائر معروف - إخفاء الإيميل والاسم
         if (emailGroup) emailGroup.style.display = 'none';
         if (nameGroup) nameGroup.style.display = 'none';
-        
         const emailInput = document.getElementById('input-email');
-        if (emailInput) emailInput.value = 'known_visitor'; // قيمة وهمية لتجاوز الـ Validation
-
-        // عرض الحقول المتقدمة المفقودة فقط
+        if (emailInput) emailInput.value = 'known_visitor';
+        
         if (advGroup) advGroup.style.display = 'block';
-        if (!data.missing_fields.includes('clinic_size')) {
-          const g = document.getElementById('group-clinic-size');
-          if(g) g.style.display = 'none';
-        }
-        if (!data.missing_fields.includes('biggest_challenge')) {
-          const g = document.getElementById('group-challenge');
-          if(g) g.style.display = 'none';
-        }
       } else {
-        // زائر جديد - عرض الإيميل والاسم وإخفاء المتقدم
         if (advGroup) advGroup.style.display = 'none';
       }
 
@@ -67,7 +55,7 @@ const SiteController = {
     const formData = new FormData(form);
     
     const payload = {
-      fingerprint_id: this.fingerprint,
+      uid: this.uid, // إرسال الـ UID
       email: formData.get('email') !== 'known_visitor' ? formData.get('email') : null,
       name: formData.get('name') || null,
       clinic_size: formData.get('clinic_size') || null,
@@ -91,17 +79,15 @@ const SiteController = {
   },
 
   setupAffiliateLinks() {
-    // التقاط جميع روابط الأفلييت (التي تشير إلى /api/go)
     document.querySelectorAll('a[href*="/api/go"]').forEach(link => {
       link.addEventListener('click', (e) => {
         const originalHref = link.getAttribute('href');
         const url = new URL(originalHref, window.location.origin);
         
-        // إلحاق معرفات التتبع الأساسية
-        url.searchParams.set('fp', this.fingerprint);
+        // إرفاق الـ UID والـ Session ID ليربطها السيرفر بالحدث
+        url.searchParams.set('uid', this.uid);
         url.searchParams.set('sid', this.sessionId);
         
-        // تحديث الرابط في اللحظة التي يضغط فيها الزائر
         link.setAttribute('href', url.toString());
       });
     });
