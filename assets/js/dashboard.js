@@ -16,17 +16,29 @@ const PK_MAP = {
 // 1) المصادقة والتهيئة (Auth & Initialization)
 // =============================================
 
-function checkAuth() {
-    const isAuthenticated = document.cookie.includes('admin_session');
-    // إصلاح خطأ التوجيه اللانهائي: البحث عن كلمة 'login' فقط لتتوافق مع الروابط النظيفة لـ Cloudflare
+async function checkAuth() {
     const isLoginPage = window.location.pathname.includes('/login');
 
-    if (!isAuthenticated && !isLoginPage) {
-        // إذا لم يكن مسجل الدخول ولم يكن في صفحة الدخول، اذهب لصفحة الدخول
-        window.location.href = '/admin/login.html';
-    } else if (isAuthenticated && isLoginPage) {
-        // إذا كان مسجل الدخول بالفعل وحاول فتح صفحة الدخول، وجهه للوحة التحكم مباشرة
-        window.location.href = '/admin/dashboard.html';
+    try {
+        // نسأل السيرفر مباشرة عن حالة المصادقة (لأن السيرفر يرى الـ HttpOnly Cookie)
+        const res = await fetch(`${API_BASE}/auth`, { method: 'GET', credentials: 'include' });
+        
+        if (res.ok) {
+            // المستخدم مسجل الدخول
+            if (isLoginPage) {
+                window.location.href = '/admin/dashboard.html';
+            }
+        } else {
+            // المستخدم غير مسجل الدخول
+            if (!isLoginPage) {
+                window.location.href = '/admin/login.html';
+            }
+        }
+    } catch (error) {
+        // في حال فشل الاتصال بالسيرفر، نحمي الصفحة بالتوجيه للوجين إن لم يكن فيها
+        if (!isLoginPage) {
+            window.location.href = '/admin/login.html';
+        }
     }
 }
 
@@ -132,7 +144,6 @@ function initDashboardEvents() {
     const visitorModal = document.getElementById('visitorModal');
     const journeyModal = document.getElementById('journeyModal');
 
-    // تفويض الأحداث للجدول الديناميكي (Event Delegation)
     if (tbody) {
         tbody.addEventListener('click', async (e) => {
             const target = e.target;
@@ -157,7 +168,6 @@ function initDashboardEvents() {
         });
     }
 
-    // فتح نافذة إضافة زائر
     if (addVisitorBtn) {
         addVisitorBtn.addEventListener('click', () => {
             document.getElementById('visitorForm').reset();
@@ -167,11 +177,9 @@ function initDashboardEvents() {
         });
     }
 
-    // إغلاق النوافذ
     document.getElementById('closeVisitorModal')?.addEventListener('click', () => closeModal(visitorModal));
     document.getElementById('closeJourneyModal')?.addEventListener('click', () => closeModal(journeyModal));
 
-    // حفظ بيانات الزائر (إضافة أو تعديل)
     document.getElementById('visitorForm')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const uid = document.getElementById('visitorUid').value;
@@ -233,7 +241,6 @@ async function openJourneyModal(uid) {
     journeyContent.innerHTML = html;
 }
 
-
 // =============================================
 // 3) منطق عارض البيانات الخام (Raw Data Viewer Page Logic)
 // =============================================
@@ -246,7 +253,6 @@ function initDataViewer() {
 }
 
 function initDataViewerEvents() {
-    // التبديل بين التبويبات (Sidebar Tabs)
     document.querySelectorAll('.sidebar-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             document.querySelector('.sidebar-btn.active')?.classList.remove('active');
@@ -257,7 +263,6 @@ function initDataViewerEvents() {
         });
     });
 
-    // أزرار الصفحات (Pagination)
     document.getElementById('prevBtn')?.addEventListener('click', () => {
         if (dataViewerState.currentPage > 1) { dataViewerState.currentPage--; fetchRawData(); }
     });
@@ -265,7 +270,6 @@ function initDataViewerEvents() {
         if (dataViewerState.currentPage < dataViewerState.totalPages) { dataViewerState.currentPage++; fetchRawData(); }
     });
 
-    // تفويض الأحداث لأزرار التعديل والحذف (Event Delegation)
     document.getElementById('tableBody')?.addEventListener('click', async (e) => {
         const target = e.target;
         if (target.closest('.raw-edit-btn')) {
@@ -283,7 +287,6 @@ function initDataViewerEvents() {
         }
     });
 
-    // إغلاق وحفظ نافذة التعديل
     document.getElementById('closeEditModal')?.addEventListener('click', () => closeModal(document.getElementById('editModal')));
     document.getElementById('editForm')?.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -368,7 +371,6 @@ function openRawEditModal(rowData, pk) {
     openModal(document.getElementById('editModal'));
 }
 
-
 // =============================================
 // 4) الأدوات المساعدة العامة (Global Utilities)
 // =============================================
@@ -380,7 +382,7 @@ async function apiRequest(endpoint, method = 'GET', body = null) {
     try {
         const res = await fetch(`${API_BASE}${endpoint}`, options);
         if (res.status === 401) { window.location.href = '/admin/login.html'; return null; }
-        if (res.status === 204) return true; // DELETE success
+        if (res.status === 204) return true;
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'API Error');
         return data;
@@ -394,16 +396,14 @@ async function apiRequest(endpoint, method = 'GET', body = null) {
 function openModal(modalElement) { if (modalElement) modalElement.classList.add('active'); }
 function closeModal(modalElement) { if (modalElement) modalElement.classList.remove('active'); }
 
-
 // =============================================
 // 5) محرك التشغيل الرئيسي (Bootstrapper)
 // =============================================
 
-document.addEventListener('DOMContentLoaded', () => {
-    checkAuth(); // التحقق من الصلاحيات أولاً
+document.addEventListener('DOMContentLoaded', async () => {
+    await checkAuth(); // الانتظار حتى ينتهي فحص السيرفر للمصادقة
     initLogout();
 
-    // تشغيل المنطق بناءً على الصفحة التي نحن فيها
     if (document.getElementById('loginForm')) {
         initLogin();
     } 
