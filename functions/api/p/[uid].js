@@ -1,7 +1,8 @@
 // functions/api/p/[uid].js
 // تحويل العميل البارد للرئيسية مع تحديث حالة الدخول في email_activities
 
-import { SUPABASE_URL, SUPABASE_SERVICE_KEY } from '../../config.js';
+// الإصلاح: استخدام ../ بدلاً من ../../
+import { SUPABASE_URL, SUPABASE_SERVICE_KEY } from '../config.js';
 
 export async function onRequestGet(context) {
   const uid = context.params.uid;
