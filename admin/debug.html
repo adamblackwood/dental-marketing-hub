@@ -13,14 +13,14 @@
         .val-badge { padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
         .val-pass { background-color: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid #10b981; }
         .val-fail { background-color: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid #ef4444; }
+        .val-warn { background-color: rgba(245, 158, 11, 0.2); color: #fcd34d; border: 1px solid #f59e0b; }
         .section-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1.5rem; }
         .section-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; color: var(--accent); }
         .data-row { display: flex; justify-content: space-between; padding: 0.4rem 0; border-bottom: 1px dashed rgba(255,255,255,0.05); }
         .data-key { color: var(--text-secondary); font-size: 0.9rem; }
         .data-val { color: var(--text-primary); font-weight: 500; font-size: 0.9rem; text-align: right; max-width: 60%; word-break: break-all; }
-        .copy-btn { background-color: #4f46e5; padding: 0.75rem 2rem; font-size: 1rem; margin-top: 1rem; width: 100%; }
+        .copy-btn { background-color: #4f46e5; padding: 0.75rem 2rem; font-size: 1rem; margin-top: 1rem; width: 100%; cursor: pointer; }
         .copy-btn:hover { background-color: #4338ca; }
-        #rawJsonPreview { background: #0b1120; padding: 1rem; border-radius: 6px; font-family: monospace; font-size: 0.8rem; max-height: 300px; overflow-y: auto; display: none; color: #94a3b8; border: 1px solid var(--border); margin-top: 1rem; }
     </style>
 </head>
 <body>
@@ -31,49 +31,22 @@
     </div>
 
     <div class="container">
-        <!-- Search Bar -->
         <div class="debug-header">
             <input type="text" id="uidInput" class="form-input debug-input" placeholder="Enter UID to verify (e.g., test-uid-1001)">
             <button id="fetchBtn" class="btn btn-primary">Fetch Data</button>
         </div>
 
-        <!-- Validation Badges -->
-        <div class="validation-grid" id="validationBadges">
-            <!-- Badges will be injected here -->
-        </div>
+        <div class="validation-grid" id="validationBadges"></div>
 
-        <!-- Data Sections -->
         <div id="debugContent" style="display: none;">
+            <div class="section-card"><h3 class="section-title">🧠 Visitor Profile</h3><div id="profileData"></div></div>
+            <div class="section-card"><h3 class="section-title">📢 Acquisitions</h3><div id="acqData"></div></div>
+            <div class="section-card"><h3 class="section-title">⏱️ Visits & Sessions</h3><div id="visitsData"></div></div>
+            <div class="section-card"><h3 class="section-title">✉️ Email Activities</h3><div id="emailData"></div></div>
+            <div class="section-card"><h3 class="section-title">⚡ Events</h3><div id="eventsData"></div></div>
             
-            <div class="section-card">
-                <h3 class="section-title">🧠 Visitor Profile</h3>
-                <div id="profileData"></div>
-            </div>
-
-            <div class="section-card">
-                <h3 class="section-title">📢 Acquisitions (Sources)</h3>
-                <div id="acqData"></div>
-            </div>
-
-            <div class="section-card">
-                <h3 class="section-title">⏱️ Visits & Sessions</h3>
-                <div id="visitsData"></div>
-            </div>
-
-            <div class="section-card">
-                <h3 class="section-title">✉️ Email Activities</h3>
-                <div id="emailData"></div>
-            </div>
-
-            <div class="section-card">
-                <h3 class="section-title">⚡ Events (Critical Actions)</h3>
-                <div id="eventsData"></div>
-            </div>
-
             <button id="copyBtn" class="btn copy-btn">📋 Copy AI Verification Report (JSON)</button>
-            <div id="copyStatus" style="text-align: center; color: var(--success); margin-top: 0.5rem; display: none;">Copied to clipboard successfully!</div>
-            
-            <div id="rawJsonPreview"></div>
+            <div id="copyStatus" style="text-align: center; color: var(--success); margin-top: 0.5rem; display: none;">Copied to clipboard!</div>
         </div>
     </div>
 
@@ -81,124 +54,129 @@
         const API_BASE = '/api/admin';
         let currentDebugData = null;
 
-        // =============================================
-        // Auth Check (Secure via Server - نفس إصلاح الداشبورد)
-        // =============================================
-        async function checkDebugAuth() {
+        // Auth Check
+        async function checkAuth() {
             try {
                 const res = await fetch(`${API_BASE}/auth`, { method: 'GET', credentials: 'include' });
-                if (!res.ok) {
-                    // إذا لم يكن مسجل الدخول، وجهه للوجين
-                    window.location.href = '/admin/login.html';
-                }
-            } catch (e) {
-                window.location.href = '/admin/login.html';
-            }
+                if (!res.ok) window.location.href = '/admin/login.html';
+            } catch (e) { window.location.href = '/admin/login.html'; }
         }
-        checkDebugAuth();
-
+        checkAuth();
 
         document.getElementById('fetchBtn').addEventListener('click', fetchDebugData);
 
         async function fetchDebugData() {
             const uid = document.getElementById('uidInput').value.trim();
             if (!uid) return alert('Please enter a UID');
-
-            document.getElementById('validationBadges').innerHTML = '<p style="color:var(--text-secondary)">Loading data...</p>';
+            document.getElementById('validationBadges').innerHTML = '<p style="color:var(--text-secondary)">Analyzing...</p>';
             document.getElementById('debugContent').style.display = 'none';
 
             try {
                 const res = await fetch(`${API_BASE}/debug?uid=${uid}`, { credentials: 'include' });
-                if (!res.ok) throw new Error('Failed to fetch debug data');
-                
+                if (!res.ok) throw new Error('UID Not Found or Server Error');
                 currentDebugData = await res.json();
-                renderDebugUI(currentDebugData);
-                
+                runSmartAnalysis(currentDebugData);
             } catch (err) {
-                document.getElementById('validationBadges').innerHTML = `<div class="val-badge val-fail">❌ Error: ${err.message}</div>`;
+                document.getElementById('validationBadges').innerHTML = `<div class="val-badge val-fail">❌ ${err.message}</div>`;
             }
         }
 
-        function renderDebugUI(data) {
-            document.getElementById('debugContent').style.display = 'block';
-            
-            // 1. Validation Badges
+        function runSmartAnalysis(data) {
             const badges = [];
             const p = data.profile;
-            
-            badges.push(p ? createBadge(true, 'Profile Exists') : createBadge(false, 'Profile Missing'));
-            if (p) {
-                if (data.acquisitions.length > 0) badges.push(createBadge(true, 'Acquisition Tracked'));
-                else badges.push(createBadge(false, 'No Acquisition'));
-                
-                if (data.sessions.length > 0) badges.push(createBadge(true, 'Session Recorded'));
-                else badges.push(createBadge(false, 'No Sessions'));
 
-                // Math Checks
-                const convEvents = data.events.filter(e => ['form_submit', 'file_download', 'affiliate_redirect'].includes(e.event_type)).length;
-                if (p.total_conversions === convEvents) badges.push(createBadge(true, `Conversions Math OK (${convEvents})`));
-                else badges.push(createBadge(false, `Conversions Mismatch (Profile: ${p.total_conversions}, Events: ${convEvents})`));
+            // 1. Profile Check
+            if (!p) {
+                badges.push(createBadge('fail', 'Profile Missing'));
+                document.getElementById('validationBadges').innerHTML = badges.join('');
+                return;
+            }
+            badges.push(createBadge('pass', 'Profile Exists'));
 
-                const maxScrollSession = Math.max(0, ...data.sessions.map(s => s.max_scroll_pct || 0));
-                if (p.max_scroll_ever_pct >= maxScrollSession) badges.push(createBadge(true, 'Scroll Data Synced'));
-                else badges.push(createBadge(false, 'Scroll Data Out of Sync'));
+            // 2. Session UID Check (The critical fix)
+            if (data.sessions && data.sessions.length > 0 && !data.sessions.message) {
+                const hasUid = data.sessions[0].uid !== null;
+                badges.push(createBadge(hasUid ? 'pass' : 'fail', hasUid ? 'Session UID Linked' : 'Session UID Missing'));
+            } else {
+                badges.push(createBadge('warn', 'No Sessions Recorded'));
+            }
+
+            // 3. Acquisitions Check
+            if (data.acquisitions && data.acquisitions.length > 0) {
+                badges.push(createBadge('pass', 'Acquisition Tracked'));
+            } else {
+                badges.push(createBadge('warn', 'No Acquisition Data'));
+            }
+
+            // 4. Math Consistency Check
+            const convEvents = data.events.filter(e => ['form_submit', 'file_download', 'affiliate_redirect'].includes(e.event_type)).length;
+            if (p.total_conversions === convEvents) {
+                badges.push(createBadge('pass', `Conversions Math OK (${convEvents})`));
+            } else {
+                badges.push(createBadge('fail', `Conversions Mismatch (Profile: ${p.total_conversions}, Events: ${convEvents})`));
+            }
+
+            // 5. Cold Lead Entry Check
+            if (data.email_activities && data.email_activities.length > 0) {
+                const enteredSite = data.email_activities[0].entered_site;
+                badges.push(createBadge(enteredSite ? 'pass' : 'fail', enteredSite ? 'Cold Lead Entered Site' : 'Cold Lead Entry NOT Tracked'));
             }
 
             document.getElementById('validationBadges').innerHTML = badges.join('');
-
-            // 2. Render Profile
-            if (p) {
-                document.getElementById('profileData').innerHTML = `
-                    <div class="data-row"><span class="data-key">Name:</span><span class="data-val">${p.identified_name || 'N/A'}</span></div>
-                    <div class="data-row"><span class="data-key">Email:</span><span class="data-val">${p.identified_email || 'N/A'}</span></div>
-                    <div class="data-row"><span class="data-key">Lead Status:</span><span class="data-val badge badge-${p.lead_status || 'cold'}">${p.lead_status || 'cold'}</span></div>
-                    <div class="data-row"><span class="data-key">Lead Score:</span><span class="data-val">${p.lead_score || 0}</span></div>
-                    <div class="data-row"><span class="data-key">Total Visits:</span><span class="data-val">${p.total_visits || 0}</span></div>
-                    <div class="data-row"><span class="data-key">Total Conversions:</span><span class="data-val">${p.total_conversions || 0}</span></div>
-                    <div class="data-row"><span class="data-key">Total Time (sec):</span><span class="data-val">${p.total_time_on_site_sec || 0}</span></div>
-                    <div class="data-row"><span class="data-key">Max Scroll %:</span><span class="data-val">${p.max_scroll_ever_pct || 0}%</span></div>
-                `;
-            } else {
-                document.getElementById('profileData').innerHTML = '<p style="color:var(--danger)">No profile found for this UID.</p>';
-            }
-
-            // 3. Render Acquisitions
-            document.getElementById('acqData').innerHTML = data.acquisitions.length > 0 
-                ? data.acquisitions.map(a => `<div class="data-row"><span class="data-key">${a.utm_campaign || a.source}</span><span class="data-val">${a.first_visit_at}</span></div>`).join('')
-                : '<p style="color:var(--text-secondary)">No acquisition data.</p>';
-
-            // 4. Render Visits & Sessions
-            let visitsHtml = '';
-            data.visits.forEach(v => {
-                visitsHtml += `<div class="data-row" style="color:#f59e0b"><span class="data-key">Visit (${v.visit_date}):</span><span class="data-val">Duration: ${v.duration_sec}s | Scroll: ${v.max_scroll_pct}%</span></div>`;
-                const relatedSessions = data.sessions.filter(s => s.visit_id === v.visit_id);
-                relatedSessions.forEach(s => {
-                    visitsHtml += `<div class="data-row" style="padding-left:2rem;"><span class="data-key">↳ Session (${s.device_type}):</span><span class="data-val">Duration: ${s.duration_sec}s | Browser: ${s.browser}</span></div>`;
-                });
-            });
-            document.getElementById('visitsData').innerHTML = visitsHtml || '<p style="color:var(--text-secondary)">No visits recorded.</p>';
-
-            // 5. Render Email
-            document.getElementById('emailData').innerHTML = data.email_activities.length > 0
-                ? data.email_activities.map(e => `<div class="data-row"><span class="data-key">${e.campaign_name}</span><span class="data-val">Opens: ${e.open_count} | Entered Site: ${e.entered_site}</span></div>`).join('')
-                : '<p style="color:var(--text-secondary)">No email activities.</p>';
-
-            // 6. Render Events
-            document.getElementById('eventsData').innerHTML = data.events.length > 0
-                ? data.events.map(e => `<div class="data-row"><span class="data-key" style="color:var(--accent)">${e.event_type}</span><span class="data-val">${e.event_value || '-'} | ${new Date(e.created_at).toLocaleTimeString()}</span></div>`).join('')
-                : '<p style="color:var(--text-secondary)">No events recorded.</p>';
-
-            // 7. Setup Raw JSON Preview
-            document.getElementById('rawJsonPreview').textContent = JSON.stringify(data, null, 2);
+            renderDataUI(data);
         }
 
-        function createBadge(isPass, text) {
-            const cls = isPass ? 'val-pass' : 'val-fail';
-            const icon = isPass ? '✅' : '❌';
+        function renderDataUI(data) {
+            document.getElementById('debugContent').style.display = 'block';
+            const p = data.profile;
+            
+            // Profile
+            document.getElementById('profileData').innerHTML = `
+                <div class="data-row"><span class="data-key">Name:</span><span class="data-val">${p.identified_name || 'N/A'}</span></div>
+                <div class="data-row"><span class="data-key">Email:</span><span class="data-val">${p.identified_email || 'N/A'}</span></div>
+                <div class="data-row"><span class="data-key">Lead Status:</span><span class="data-val">${p.lead_status}</span></div>
+                <div class="data-row"><span class="data-key">Lead Score:</span><span class="data-val">${p.lead_score}</span></div>
+                <div class="data-row"><span class="data-key">Total Visits:</span><span class="data-val">${p.total_visits}</span></div>
+                <div class="data-row"><span class="data-key">Total Conversions:</span><span class="data-val">${p.total_conversions}</span></div>
+            `;
+
+            // Acquisitions
+            document.getElementById('acqData').innerHTML = data.acquisitions.length > 0 
+                ? data.acquisitions.map(a => `<div class="data-row"><span class="data-key">${a.utm_campaign || a.source}</span><span class="data-val">${a.first_visit_at}</span></div>`).join('')
+                : '<p style="color:var(--text-secondary)">None</p>';
+
+            // Visits & Sessions
+            let vHtml = '';
+            if (data.visits && data.visits.length > 0) {
+                data.visits.forEach(v => {
+                    vHtml += `<div class="data-row" style="color:#f59e0b"><span class="data-key">Visit (${v.visit_date}):</span><span class="data-val">Scroll: ${v.max_scroll_pct}% | Bounce: ${v.is_bounce}</span></div>`;
+                });
+            }
+            if (data.sessions && !data.sessions.message && data.sessions.length > 0) {
+                data.sessions.forEach(s => {
+                    vHtml += `<div class="data-row" style="padding-left:2rem;"><span class="data-key">↳ Session (${s.device_type}):</span><span class="data-val">Duration: ${s.duration_sec}s | UID Linked: ${s.uid ? '✅' : '❌'}</span></div>`;
+                });
+            }
+            document.getElementById('visitsData').innerHTML = vHtml || '<p style="color:var(--text-secondary)">None</p>';
+
+            // Email Activities
+            document.getElementById('emailData').innerHTML = data.email_activities.length > 0
+                ? data.email_activities.map(e => `<div class="data-row"><span class="data-key">${e.campaign_name}</span><span class="data-val">Opens: ${e.open_count} | Entered Site: ${e.entered_site ? '✅' : '❌'}</span></div>`).join('')
+                : '<p style="color:var(--text-secondary)">None</p>';
+
+            // Events
+            document.getElementById('eventsData').innerHTML = data.events.length > 0
+                ? data.events.map(e => `<div class="data-row"><span class="data-key" style="color:var(--accent)">${e.event_type}</span><span class="data-val">${e.event_value || '-'}</span></div>`).join('')
+                : '<p style="color:var(--text-secondary)">None</p>';
+        }
+
+        function createBadge(type, text) {
+            const cls = type === 'pass' ? 'val-pass' : (type === 'fail' ? 'val-fail' : 'val-warn');
+            const icon = type === 'pass' ? '✅' : (type === 'fail' ? '❌' : '⚠️');
             return `<div class="val-badge ${cls}">${icon} ${text}</div>`;
         }
 
-        // Copy Report Logic
+        // Copy Magic Button
         document.getElementById('copyBtn').addEventListener('click', () => {
             if (!currentDebugData) return;
             const jsonText = JSON.stringify(currentDebugData, null, 2);
@@ -206,11 +184,8 @@
                 const status = document.getElementById('copyStatus');
                 status.style.display = 'block';
                 setTimeout(() => status.style.display = 'none', 3000);
-            }).catch(err => {
-                alert('Failed to copy text: ', err);
-            });
+            }).catch(err => alert('Failed to copy: ', err));
         });
-
     </script>
 </body>
 </html>

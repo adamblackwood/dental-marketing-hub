@@ -1,11 +1,8 @@
 // functions/api/track.js
-// نقطة النهاية المركزية لاستقبال جميع أحداث التتبع من العميل
-// يعالج: session_start, heartbeat, scroll, exit, form_submit, file_download, affiliate_redirect, email_open
-// قاعدة صارمة: لا يُسمح بـ INSERT في جدول events عند heartbeat أو scroll
+// نقطة النهاية المركزية لاستقبال جميع أحداث التتبع من العميل (محدّث لدعم uid في sessions)
 
 import { SUPABASE_URL, SUPABASE_SERVICE_KEY } from './config.js';
 
-// أدوات مساعدة
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 }
@@ -37,7 +34,6 @@ async function updateMaxValue(table, matchQuery, fieldName, newValue) {
   }
 }
 
-// المُوجّه الرئيسي
 export async function onRequestPost(context) {
   try {
     const body = await context.request.json();
@@ -61,11 +57,10 @@ export async function onRequestPost(context) {
   }
 }
 
-// 1) SESSION_START
 async function handleSessionStart(uid, session_id, data) {
   const now = new Date().toISOString();
   const finalSessionId = session_id || crypto.randomUUID();
-  const profile = await sbFetch('GET', 'visitor_profiles', `?uid=eq.${uid}&select=total_visits,fingerprint_id`);
+  const profile = await sbFetch('GET', 'visitor_profiles', `?uid=eq.${uid}&select=total_visits`);
 
   if (profile && profile.length > 0) {
     const currentVisits = Number(profile[0].total_visits) || 0;
@@ -86,19 +81,19 @@ async function handleSessionStart(uid, session_id, data) {
 
   const visit_id = crypto.randomUUID();
   await sbFetch('POST', 'visits', '', { visit_id, uid, acquisition_id, entry_page: data.landing_page || '/', exit_page: data.landing_page || '/', duration_sec: 0, max_scroll_pct: 0, is_bounce: true, visit_date: now.split('T')[0] });
-  await sbFetch('POST', 'sessions', '', { session_id: finalSessionId, visit_id, started_at: now, last_activity_at: now, ended_at: null, duration_sec: 0, max_scroll_pct: 0, is_bounce: true, device_type: data.device_type || null, browser: data.browser || null, operating_system: data.operating_system || null, country: data.country || null, city: data.city || null });
+  
+  // الإصلاح الجوهري: إضافة حقل uid في إدراج الجلسة
+  await sbFetch('POST', 'sessions', '', { session_id: finalSessionId, visit_id, uid, started_at: now, last_activity_at: now, ended_at: null, duration_sec: 0, max_scroll_pct: 0, is_bounce: true, device_type: data.device_type || null, browser: data.browser || null, operating_system: data.operating_system || null, country: data.country || null, city: data.city || null });
 
   return jsonResponse({ success: true, visit_id, session_id: finalSessionId });
 }
 
-// 2) HEARTBEAT
 async function handleHeartbeat(uid, session_id, data) {
   if (!session_id) return jsonResponse({ error: 'Missing session_id' }, 400);
   await sbFetch('PATCH', 'sessions', `?session_id=eq.${session_id}&ended_at=is.null`, { last_activity_at: new Date().toISOString() });
   return jsonResponse({ success: true });
 }
 
-// 3) SCROLL
 async function handleScroll(uid, session_id, data) {
   const scrollPct = Number(data.scroll_pct) || 0;
   if (!session_id) return jsonResponse({ error: 'Missing session_id' }, 400);
@@ -109,7 +104,6 @@ async function handleScroll(uid, session_id, data) {
   return jsonResponse({ success: true });
 }
 
-// 4) EXIT
 async function handleExit(uid, session_id, data) {
   if (!session_id) return jsonResponse({ error: 'Missing session_id' }, 400);
   const now = new Date().toISOString();
@@ -140,7 +134,6 @@ async function handleExit(uid, session_id, data) {
   return jsonResponse({ success: true });
 }
 
-// 5) CONVERSIONS
 async function handleConversion(uid, session_id, event_type, data) {
   const now = new Date().toISOString();
   await sbFetch('POST', 'events', '', { uid, session_id: session_id || null, event_type, event_value: data.event_value || null, created_at: now });
@@ -160,7 +153,6 @@ async function handleConversion(uid, session_id, event_type, data) {
   return jsonResponse({ success: true });
 }
 
-// 6) EMAIL_OPEN
 async function handleEmailOpen(uid, data) {
   const now = new Date().toISOString();
   const campaignName = data.campaign_name || null;
@@ -168,9 +160,9 @@ async function handleEmailOpen(uid, data) {
     const existing = await sbFetch('GET', 'email_activities', `?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaignName)}&select=open_count`);
     if (existing && existing.length > 0) {
       const currentOpens = Number(existing[0].open_count) || 0;
-      await sbFetch('PATCH', 'email_activities', `?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaignName)}`, { open_count: currentOpens + 1, last_open_at: now, entered_site: true });
+      await sbFetch('PATCH', 'email_activities', `?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaignName)}`, { open_count: currentOpens + 1, last_open_at: now });
     } else {
-      await sbFetch('POST', 'email_activities', '', { uid, campaign_name: campaignName, email_address: data.email_address || null, first_open_at: now, last_open_at: now, open_count: 1, entered_site: true, country: data.country || null, city: data.city || null, device_type: data.device_type || null, operating_system: data.operating_system || null });
+      await sbFetch('POST', 'email_activities', '', { uid, campaign_name: campaignName, first_open_at: now, last_open_at: now, open_count: 1 });
       await safeIncrement('visitor_profiles', `uid=eq.${uid}`, 'total_campaigns', 1);
     }
   }
