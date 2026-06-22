@@ -1,7 +1,8 @@
 // functions/api/open/[uid].js
 // تتبع فتح الإيميل عبر Tracking Pixel 1x1 (إدراج في events و email_activities)
 
-import { SUPABASE_URL, SUPABASE_SERVICE_KEY } from '../../config.js';
+// الإصلاح النهائي: استخدام ../ بدلاً من ../../
+import { SUPABASE_URL, SUPABASE_SERVICE_KEY } from '../config.js';
 
 export async function onRequestGet(context) {
   const uid = context.params.uid;
@@ -26,9 +27,7 @@ export async function onRequestGet(context) {
         await fetch(`${SUPABASE_URL}/rest/v1/email_activities`, { method: 'POST', headers, body: JSON.stringify({ uid, campaign_name: campaignName, open_count: 1 }) });
       }
 
-      // 3. تحديث العدادات في ملف الزائر
-      const pRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=total_email_opens`, { headers }); // ملاحظة: أزلنا total_email_opens في V4، يمكن استبداله بـ استعلام من events أو إعادته
-      // بناءً على الوثيقة، أزلناه، لكن دعنا نحدث last_seen_at فقط
+      // 3. تحديث ملف الزائر
       await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, { method: 'PATCH', headers, body: JSON.stringify({ last_seen_at: now }) });
 
     })());
