@@ -1,5 +1,5 @@
 // functions/api/admin/analytics.js
-// تجميع البيانات للـ KPIs والمخططات
+// تجميع البيانات للـ KPIs والمخططات بناءً على هيكلية V4.0
 
 import { SUPABASE_URL, SUPABASE_SERVICE_KEY, ADMIN_PASSWORD } from '../config.js';
 
@@ -12,24 +12,31 @@ export async function onRequestGet(context) {
   if (!checkAuth(context.request)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
 
   const headers = { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` };
-  
+
   try {
-    // جلب إحصائيات عامة بسيطة (يمكن تطويرها لاحقاً برسوم بيانية)
-    const [visitors, hotLeads, conversions, sessions] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?select=uid`, { headers }).then(r => r.json()),
-      fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?lead_status=eq.hot&select=uid`, { headers }).then(r => r.json()),
-      fetch(`${SUPABASE_URL}/rest/v1/events?event_type=eq.affiliate_redirect&select=event_id`, { headers }).then(r => r.json()),
-      fetch(`${SUPABASE_URL}/rest/v1/sessions?select=session_id`, { headers }).then(r => r.json())
-    ]);
+    // 1. إجمالي الزوار (الملفات الشخصية)
+    const pRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?select=uid`, { headers });
+    const total_visitors = (await pRes.json()).length;
 
-    const data = {
-      total_visitors: visitors.length,
-      hot_leads: hotLeads.length,
-      total_conversions: conversions.length,
-      total_sessions: sessions.length
-    };
+    // 2. العملاء الساخنين
+    const hRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?lead_status=eq.hot&select=uid`, { headers });
+    const hot_leads = (await hRes.json()).length;
 
-    return new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } });
+    // 3. إجمالي الزيارات (حسب قاعدة الـ 30 دقيقة - من جدول visits)
+    const vRes = await fetch(`${SUPABASE_URL}/rest/v1/visits?select=visit_id`, { headers });
+    const total_visits = (await vRes.json()).length;
+
+    // 4. إجمالي التحويلات التجارية (من جدول events للأحداث المحددة)
+    const cRes = await fetch(`${SUPABASE_URL}/rest/v1/events?or=(event_type.eq.file_download,event_type.eq.form_submit,event_type.eq.affiliate_click)&select=event_id`, { headers });
+    const total_conversions = (await cRes.json()).length;
+
+    return new Response(JSON.stringify({
+      total_visitors,
+      hot_leads,
+      total_visits,
+      total_conversions
+    }), { headers: { 'Content-Type': 'application/json' } });
+
   } catch (err) {
     return new Response(JSON.stringify({ error: 'Analytics fetch failed' }), { status: 500 });
   }

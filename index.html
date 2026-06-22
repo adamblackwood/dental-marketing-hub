@@ -1,141 +1,42 @@
-<!-- index.html -->
-<!-- الصفحة الرئيسية - نماذج ذكية وزر أفلييت -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dental Marketing Resource Hub | Grow Your Practice</title>
+    <title>Dental Marketing Resource Hub</title>
+    <!-- استدعاء ملفات CSS الجديدة -->
+    <link rel="stylesheet" href="/assets/css/layout.css">
+    <link rel="stylesheet" href="/assets/css/dashboard.css"> <!-- للحفاظ على تنسيقات النماذج إن وجدت -->
     <style>
-        :root { --primary: #2563eb; --dark: #0f172a; --light: #f8fafc; --gray: #94a3b8; }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif; }
-        body { background-color: var(--light); color: var(--dark); line-height: 1.6; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
-        
-        /* Hero Section */
-        .hero { background: linear-gradient(135deg, var(--dark) 0%, #1e3a8a 100%); color: white; padding: 100px 0; text-align: center; }
+        /* بعض التنسيقات السريعة للصفحة الرئيسية */
+        .hero { text-align: center; padding: 100px 20px; background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); color: white; }
         .hero h1 { font-size: 3rem; margin-bottom: 20px; }
-        .hero p { font-size: 1.2rem; color: var(--gray); margin-bottom: 40px; max-width: 700px; margin-left: auto; margin-right: auto; }
-        
-        /* Buttons */
-        .btn { display: inline-block; padding: 15px 30px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; transition: transform 0.2s, box-shadow 0.2s; border: none; cursor: pointer; }
-        .btn-primary { background-color: var(--primary); color: white; }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.4); }
-        .btn-ghost { background-color: transparent; color: white; border: 2px solid rgba(255,255,255,0.3); margin-left: 15px; }
-        .btn-ghost:hover { background: rgba(255,255,255,0.1); }
-
-        /* Smart Form Section */
-        .form-section { background: white; padding: 60px 0; border-bottom: 1px solid #e2e8f0; }
-        .form-card { background: white; border-radius: 12px; padding: 40px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); max-width: 500px; margin: 0 auto; text-align: center; }
-        .form-card h2 { margin-bottom: 10px; }
-        .form-card p { color: var(--gray); margin-bottom: 30px; }
-        .form-group { margin-bottom: 20px; text-align: left; }
-        .form-group label { display: block; font-weight: 600; margin-bottom: 8px; font-size: 0.9rem; }
-        .form-group input, .form-group select { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 1rem; }
-        .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2); }
-        
-        /* Exit Intent Modal */
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
-        .modal-overlay.active { display: flex; }
-        .modal-content { background: white; padding: 40px; border-radius: 12px; max-width: 450px; text-align: center; position: relative; }
-        .modal-close { position: absolute; top: 15px; right: 20px; background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--gray); }
-
-        /* Resource Section */
-        .resources { padding: 80px 0; }
-        .resource-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; margin-top: 40px; }
-        .resource-card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 30px; transition: box-shadow 0.3s; }
-        .resource-card:hover { box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        .download-link { color: var(--primary); font-weight: 600; text-decoration: none; display: inline-block; margin-top: 15px; }
+        .btn { display: inline-block; padding: 15px 30px; border-radius: 8px; text-decoration: none; font-weight: bold; margin: 10px; color: white; }
+        .btn-primary { background-color: #3b82f6; }
+        .btn-ghost { border: 2px solid rgba(255,255,255,0.3); }
     </style>
 </head>
 <body>
 
-    <section class="hero">
-        <div class="container">
+    <!-- محرك القوالب سيقوم بحقن الـ Navbar هنا تلقائياً -->
+
+    <!-- المحتوى الرئيسي -->
+    <div id="app">
+        <section class="hero">
             <h1>Automate & Scale Your Dental Practice</h1>
-            <p>Stop chasing leads. Discover how top dental clinics use GoHighLevel to automate patient acquisition and retention.</p>
+            <p>Discover how top dental clinics use GoHighLevel to automate patient acquisition.</p>
             <a href="#get-resource" class="btn btn-primary">Download Free Guide</a>
             <a href="/api/go" id="ghlAffiliateBtn" class="btn btn-ghost">Start Free Trial on GoHighLevel</a>
-        </div>
-    </section>
-
-    <section class="form-section" id="get-resource">
-        <div class="container">
-            <div class="form-card">
-                <h2>Get The Free Blueprint</h2>
-                <p>Enter your details to download the ultimate dental marketing automation guide.</p>
-                
-                <!-- Dynamic Form Area -->
-                <div id="smartFormContainer">
-                    <form id="smartForm">
-                        <div class="form-group" id="nameGroup" style="display:none;">
-                            <label for="name">Full Name</label>
-                            <input type="text" id="name" name="identified_name" placeholder="Dr. John Smith">
-                        </div>
-                        <div class="form-group" id="emailGroup">
-                            <label for="email">Work Email</label>
-                            <input type="email" id="email" name="identified_email" placeholder="dr.smith@clinic.com" required>
-                        </div>
-                        <div class="form-group" id="challengeGroup" style="display:none;">
-                            <label for="challenge">Biggest Challenge</label>
-                            <select id="challenge" name="biggest_challenge">
-                                <option value="">Select...</option>
-                                <option value="new_patients">Getting New Patients</option>
-                                <option value="retention">Patient Retention</option>
-                                <option value="automation">Lack of Automation</option>
-                                <option value="reputation">Online Reputation</option>
-                            </select>
-                        </div>
-                        <button type="submit" class="btn btn-primary" style="width: 100%;">Download Now</button>
-                    </form>
-                </div>
-                
-                <div id="thankYouMessage" style="display:none;">
-                    <h3 style="color: #10b981;">✓ Success!</h3>
-                    <p>Check your inbox. Your download has started.</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- قم باستبدال قسم resources في index.html بهذا القسم المحدث -->
-
-    <section class="resources">
-        <div class="container">
-            <h2 style="text-align: center;">Latest Resources</h2>
-            <div class="resource-grid">
-                <div class="resource-card">
-                    <h3>GoHighLevel Setup Guide</h3>
-                    <p>Step-by-step guide to configure your GoHighLevel snapshot for dental clinics.</p>
-                    <!-- لاحظ أن data-file يتطابق مع المفتاح في config.js -->
-                    <a href="#" class="download-link" data-file="ghl-setup-guide">Download GHL Guide →</a>
-                </div>
-                <div class="resource-card">
-                    <h3>Patient Automation Scripts</h3>
-                    <p>Pre-built SMS and Email templates for recall, reminders, and reviews.</p>
-                    <a href="#" class="download-link" data-file="automation-scripts">Download Scripts →</a>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Exit Intent Modal -->
-    <div class="modal-overlay" id="exitModal">
-        <div class="modal-content">
-            <button class="modal-close" id="closeExitModal">&times;</button>
-            <h2>Wait! Don't Leave Empty-Handed</h2>
-            <p style="margin: 15px 0;">Enter your email and I'll send you the complete Dental Marketing Automation guide for FREE.</p>
-            <form id="exitForm">
-                <div class="form-group">
-                    <input type="email" id="exitEmail" name="identified_email" placeholder="Your best email address" required>
-                </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%;">Send It To Me</button>
-            </form>
-        </div>
+        </section>
+        
+        <!-- بقية محتوى الصفحة (النماذج وغيرها) يبقى هنا... -->
     </div>
 
-    <!-- Scripts -->
+    <!-- محرك القوالب سيقوم بحقن الـ Footer هنا تلقائياً -->
+
+    <!-- استدعاء الملفات بالترتيب الصحيح -->
     <script src="/assets/js/tracking.js"></script>
-    <script src="/assets/js/main.js"></script>
+    <!-- استخدام type="module" لأننا نستخدم import في main.js -->
+    <script type="module" src="/assets/js/main.js"></script>
 </body>
 </html>
