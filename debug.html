@@ -1,50 +1,204 @@
+<!-- debug.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Debug Data Viewer</title>
+    <title>System Debug & Verification - Dental Hub</title>
+    <link rel="stylesheet" href="/assets/css/dashboard.css">
     <style>
-        body { font-family: monospace; background: #f8f9fa; padding: 20px; }
-        button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #0f172a; color: white; border: none; border-radius: 5px; margin-bottom: 20px; }
-        button:hover { background: #1e293b; }
-        .card { background: white; padding: 15px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid #0f172a; }
-        h2 { margin-top: 0; color: #0f172a; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-        pre { white-space: pre-wrap; word-wrap: break-word; font-size: 13px; color: #334155; }
+        .debug-header { display: flex; gap: 1rem; margin-bottom: 2rem; align-items: center; }
+        .debug-input { flex: 1; padding: 0.75rem; font-size: 1rem; }
+        .validation-grid { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 2rem; }
+        .val-badge { padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+        .val-pass { background-color: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid #10b981; }
+        .val-fail { background-color: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid #ef4444; }
+        .section-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1.5rem; }
+        .section-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; color: var(--accent); }
+        .data-row { display: flex; justify-content: space-between; padding: 0.4rem 0; border-bottom: 1px dashed rgba(255,255,255,0.05); }
+        .data-key { color: var(--text-secondary); font-size: 0.9rem; }
+        .data-val { color: var(--text-primary); font-weight: 500; font-size: 0.9rem; text-align: right; max-width: 60%; word-break: break-all; }
+        .copy-btn { background-color: #4f46e5; padding: 0.75rem 2rem; font-size: 1rem; margin-top: 1rem; width: 100%; }
+        .copy-btn:hover { background-color: #4338ca; }
+        #rawJsonPreview { background: #0b1120; padding: 1rem; border-radius: 6px; font-family: monospace; font-size: 0.8rem; max-height: 300px; overflow-y: auto; display: none; color: #94a3b8; border: 1px solid var(--border); margin-top: 1rem; }
     </style>
 </head>
 <body>
 
-    <button onclick="loadData()">Fetch Latest 10 Records (All Tables)</button>
-    <div id="output"><p>Click the button to load data...</p></div>
+    <div class="header">
+        <h1>System Debug & Verification</h1>
+        <a href="/admin/dashboard.html" class="btn btn-ghost btn-sm">← Back to Dashboard</a>
+    </div>
+
+    <div class="container">
+        <!-- Search Bar -->
+        <div class="debug-header">
+            <input type="text" id="uidInput" class="form-input debug-input" placeholder="Enter UID to verify (e.g., test-uid-1001)">
+            <button id="fetchBtn" class="btn btn-primary">Fetch Data</button>
+        </div>
+
+        <!-- Validation Badges -->
+        <div class="validation-grid" id="validationBadges">
+            <!-- Badges will be injected here -->
+        </div>
+
+        <!-- Data Sections -->
+        <div id="debugContent" style="display: none;">
+            
+            <div class="section-card">
+                <h3 class="section-title">🧠 Visitor Profile</h3>
+                <div id="profileData"></div>
+            </div>
+
+            <div class="section-card">
+                <h3 class="section-title">📢 Acquisitions (Sources)</h3>
+                <div id="acqData"></div>
+            </div>
+
+            <div class="section-card">
+                <h3 class="section-title">⏱️ Visits & Sessions</h3>
+                <div id="visitsData"></div>
+            </div>
+
+            <div class="section-card">
+                <h3 class="section-title">✉️ Email Activities</h3>
+                <div id="emailData"></div>
+            </div>
+
+            <div class="section-card">
+                <h3 class="section-title">⚡ Events (Critical Actions)</h3>
+                <div id="eventsData"></div>
+            </div>
+
+            <button id="copyBtn" class="btn copy-btn">📋 Copy AI Verification Report (JSON)</button>
+            <div id="copyStatus" style="text-align: center; color: var(--success); margin-top: 0.5rem; display: none;">Copied to clipboard successfully!</div>
+            
+            <div id="rawJsonPreview"></div>
+        </div>
+    </div>
 
     <script>
-        async function loadData() {
-            document.getElementById('output').innerHTML = '<p>Loading data...</p>';
+        const API_BASE = '/api/admin';
+        let currentDebugData = null;
+
+        // Auth Check
+        if (!document.cookie.includes('admin_session')) {
+            window.location.href = '/admin/login.html';
+        }
+
+        document.getElementById('fetchBtn').addEventListener('click', fetchDebugData);
+
+        async function fetchDebugData() {
+            const uid = document.getElementById('uidInput').value.trim();
+            if (!uid) return alert('Please enter a UID');
+
+            document.getElementById('validationBadges').innerHTML = '<p style="color:var(--text-secondary)">Loading data...</p>';
+            document.getElementById('debugContent').style.display = 'none';
+
             try {
-                const res = await fetch('/api/debug');
-                const data = await res.json();
+                const res = await fetch(`${API_BASE}/debug?uid=${uid}`, { credentials: 'include' });
+                if (!res.ok) throw new Error('Failed to fetch debug data');
                 
-                let html = '';
-                const tables = [
-                    { name: '1. Visitor Profiles', data: data.visitors },
-                    { name: '2. Acquisitions', data: data.acquisitions },
-                    { name: '3. Visits', data: data.visits },
-                    { name: '4. Sessions', data: data.sessions },
-                    { name: '5. Email Activities', data: data.emails },
-                    { name: '6. Events', data: data.events }
-                ];
-
-                tables.forEach(t => {
-                    const count = t.data ? t.data.length : 0;
-                    html += `<div class="card"><h2>${t.name} (${count} rows)</h2><pre>${JSON.stringify(t.data, null, 2)}</pre></div>`;
-                });
-
-                document.getElementById('output').innerHTML = html;
-            } catch (e) {
-                document.getElementById('output').innerHTML = `<div class="card"><pre style="color:red;">Error: ${e.message}</pre></div>`;
+                currentDebugData = await res.json();
+                renderDebugUI(currentDebugData);
+                
+            } catch (err) {
+                document.getElementById('validationBadges').innerHTML = `<div class="val-badge val-fail">❌ Error: ${err.message}</div>`;
             }
         }
+
+        function renderDebugUI(data) {
+            document.getElementById('debugContent').style.display = 'block';
+            
+            // 1. Validation Badges
+            const badges = [];
+            const p = data.profile;
+            
+            badges.push(p ? createBadge(true, 'Profile Exists') : createBadge(false, 'Profile Missing'));
+            if (p) {
+                if (data.acquisitions.length > 0) badges.push(createBadge(true, 'Acquisition Tracked'));
+                else badges.push(createBadge(false, 'No Acquisition'));
+                
+                if (data.sessions.length > 0) badges.push(createBadge(true, 'Session Recorded'));
+                else badges.push(createBadge(false, 'No Sessions'));
+
+                // Math Checks
+                const convEvents = data.events.filter(e => ['form_submit', 'file_download', 'affiliate_redirect'].includes(e.event_type)).length;
+                if (p.total_conversions === convEvents) badges.push(createBadge(true, `Conversions Math OK (${convEvents})`));
+                else badges.push(createBadge(false, `Conversions Mismatch (Profile: ${p.total_conversions}, Events: ${convEvents})`));
+
+                const maxScrollSession = Math.max(0, ...data.sessions.map(s => s.max_scroll_pct || 0));
+                if (p.max_scroll_ever_pct >= maxScrollSession) badges.push(createBadge(true, 'Scroll Data Synced'));
+                else badges.push(createBadge(false, 'Scroll Data Out of Sync'));
+            }
+
+            document.getElementById('validationBadges').innerHTML = badges.join('');
+
+            // 2. Render Profile
+            if (p) {
+                document.getElementById('profileData').innerHTML = `
+                    <div class="data-row"><span class="data-key">Name:</span><span class="data-val">${p.identified_name || 'N/A'}</span></div>
+                    <div class="data-row"><span class="data-key">Email:</span><span class="data-val">${p.identified_email || 'N/A'}</span></div>
+                    <div class="data-row"><span class="data-key">Lead Status:</span><span class="data-val badge badge-${p.lead_status || 'cold'}">${p.lead_status || 'cold'}</span></div>
+                    <div class="data-row"><span class="data-key">Lead Score:</span><span class="data-val">${p.lead_score || 0}</span></div>
+                    <div class="data-row"><span class="data-key">Total Visits:</span><span class="data-val">${p.total_visits || 0}</span></div>
+                    <div class="data-row"><span class="data-key">Total Conversions:</span><span class="data-val">${p.total_conversions || 0}</span></div>
+                    <div class="data-row"><span class="data-key">Total Time (sec):</span><span class="data-val">${p.total_time_on_site_sec || 0}</span></div>
+                    <div class="data-row"><span class="data-key">Max Scroll %:</span><span class="data-val">${p.max_scroll_ever_pct || 0}%</span></div>
+                `;
+            } else {
+                document.getElementById('profileData').innerHTML = '<p style="color:var(--danger)">No profile found for this UID.</p>';
+            }
+
+            // 3. Render Acquisitions
+            document.getElementById('acqData').innerHTML = data.acquisitions.length > 0 
+                ? data.acquisitions.map(a => `<div class="data-row"><span class="data-key">${a.utm_campaign || a.source}</span><span class="data-val">${a.first_visit_at}</span></div>`).join('')
+                : '<p style="color:var(--text-secondary)">No acquisition data.</p>';
+
+            // 4. Render Visits & Sessions
+            let visitsHtml = '';
+            data.visits.forEach(v => {
+                visitsHtml += `<div class="data-row" style="color:#f59e0b"><span class="data-key">Visit (${v.visit_date}):</span><span class="data-val">Duration: ${v.duration_sec}s | Scroll: ${v.max_scroll_pct}%</span></div>`;
+                const relatedSessions = data.sessions.filter(s => s.visit_id === v.visit_id);
+                relatedSessions.forEach(s => {
+                    visitsHtml += `<div class="data-row" style="padding-left:2rem;"><span class="data-key">↳ Session (${s.device_type}):</span><span class="data-val">Duration: ${s.duration_sec}s | Browser: ${s.browser}</span></div>`;
+                });
+            });
+            document.getElementById('visitsData').innerHTML = visitsHtml || '<p style="color:var(--text-secondary)">No visits recorded.</p>';
+
+            // 5. Render Email
+            document.getElementById('emailData').innerHTML = data.email_activities.length > 0
+                ? data.email_activities.map(e => `<div class="data-row"><span class="data-key">${e.campaign_name}</span><span class="data-val">Opens: ${e.open_count} | Entered Site: ${e.entered_site}</span></div>`).join('')
+                : '<p style="color:var(--text-secondary)">No email activities.</p>';
+
+            // 6. Render Events
+            document.getElementById('eventsData').innerHTML = data.events.length > 0
+                ? data.events.map(e => `<div class="data-row"><span class="data-key" style="color:var(--accent)">${e.event_type}</span><span class="data-val">${e.event_value || '-'} | ${new Date(e.created_at).toLocaleTimeString()}</span></div>`).join('')
+                : '<p style="color:var(--text-secondary)">No events recorded.</p>';
+
+            // 7. Setup Raw JSON Preview
+            document.getElementById('rawJsonPreview').textContent = JSON.stringify(data, null, 2);
+        }
+
+        function createBadge(isPass, text) {
+            const cls = isPass ? 'val-pass' : 'val-fail';
+            const icon = isPass ? '✅' : '❌';
+            return `<div class="val-badge ${cls}">${icon} ${text}</div>`;
+        }
+
+        // Copy Report Logic
+        document.getElementById('copyBtn').addEventListener('click', () => {
+            if (!currentDebugData) return;
+            const jsonText = JSON.stringify(currentDebugData, null, 2);
+            navigator.clipboard.writeText(jsonText).then(() => {
+                const status = document.getElementById('copyStatus');
+                status.style.display = 'block';
+                setTimeout(() => status.style.display = 'none', 3000);
+            }).catch(err => {
+                alert('Failed to copy text: ', err);
+            });
+        });
+
     </script>
 </body>
 </html>
