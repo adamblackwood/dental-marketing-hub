@@ -81,10 +81,22 @@
         const API_BASE = '/api/admin';
         let currentDebugData = null;
 
-        // Auth Check
-        if (!document.cookie.includes('admin_session')) {
-            window.location.href = '/admin/login.html';
+        // =============================================
+        // Auth Check (Secure via Server - نفس إصلاح الداشبورد)
+        // =============================================
+        async function checkDebugAuth() {
+            try {
+                const res = await fetch(`${API_BASE}/auth`, { method: 'GET', credentials: 'include' });
+                if (!res.ok) {
+                    // إذا لم يكن مسجل الدخول، وجهه للوجين
+                    window.location.href = '/admin/login.html';
+                }
+            } catch (e) {
+                window.location.href = '/admin/login.html';
+            }
         }
+        checkDebugAuth();
+
 
         document.getElementById('fetchBtn').addEventListener('click', fetchDebugData);
 
