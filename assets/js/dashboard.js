@@ -1,5 +1,6 @@
 // assets/js/dashboard.js
-// منطق الداشبورد: CRUD, Timeline, Pagination, Auth, Event Delegation
+// منطق لوحة التحكم الرئيسي: مصادقة الأدمن، إدارة الزوار (CRUD)، عارض البيانات الخام، 
+// وعرض رحلة العميل 360° مع تفويض الأحداث (Event Delegation).
 
 const API_BASE = '/api/admin';
 const PK_MAP = {
@@ -12,14 +13,20 @@ const PK_MAP = {
 };
 
 // =============================================
-// 1) Auth & Initialization
+// 1) المصادقة والتهيئة (Auth & Initialization)
 // =============================================
 
 function checkAuth() {
-    if (!document.cookie.includes('admin_session')) {
-        if (!window.location.pathname.includes('login.html')) {
-            window.location.href = '/admin/login.html';
-        }
+    const isAuthenticated = document.cookie.includes('admin_session');
+    // إصلاح خطأ التوجيه اللانهائي: البحث عن كلمة 'login' فقط لتتوافق مع الروابط النظيفة لـ Cloudflare
+    const isLoginPage = window.location.pathname.includes('/login');
+
+    if (!isAuthenticated && !isLoginPage) {
+        // إذا لم يكن مسجل الدخول ولم يكن في صفحة الدخول، اذهب لصفحة الدخول
+        window.location.href = '/admin/login.html';
+    } else if (isAuthenticated && isLoginPage) {
+        // إذا كان مسجل الدخول بالفعل وحاول فتح صفحة الدخول، وجهه للوحة التحكم مباشرة
+        window.location.href = '/admin/dashboard.html';
     }
 }
 
@@ -64,7 +71,7 @@ function initLogout() {
 }
 
 // =============================================
-// 2) Dashboard Page Logic
+// 2) منطق لوحة التحكم الرئيسية (Dashboard Page Logic)
 // =============================================
 
 let allVisitors = [];
@@ -125,7 +132,7 @@ function initDashboardEvents() {
     const visitorModal = document.getElementById('visitorModal');
     const journeyModal = document.getElementById('journeyModal');
 
-    // Event Delegation for Table Actions
+    // تفويض الأحداث للجدول الديناميكي (Event Delegation)
     if (tbody) {
         tbody.addEventListener('click', async (e) => {
             const target = e.target;
@@ -150,7 +157,7 @@ function initDashboardEvents() {
         });
     }
 
-    // Add Visitor Button
+    // فتح نافذة إضافة زائر
     if (addVisitorBtn) {
         addVisitorBtn.addEventListener('click', () => {
             document.getElementById('visitorForm').reset();
@@ -160,11 +167,11 @@ function initDashboardEvents() {
         });
     }
 
-    // Close Modals
+    // إغلاق النوافذ
     document.getElementById('closeVisitorModal')?.addEventListener('click', () => closeModal(visitorModal));
     document.getElementById('closeJourneyModal')?.addEventListener('click', () => closeModal(journeyModal));
 
-    // Save Visitor Form Submit
+    // حفظ بيانات الزائر (إضافة أو تعديل)
     document.getElementById('visitorForm')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const uid = document.getElementById('visitorUid').value;
@@ -213,12 +220,12 @@ async function openJourneyModal(uid) {
 
     let html = `<h3 style="margin-bottom:1rem;">Profile: ${data.profile.identified_email || uid}</h3>`;
     
-    html += '<div style="margin-bottom:1.5rem;"><h4 class="text-sm font-bold text-gray-400 mb-2">Acquisitions</h4>';
+    html += '<div style="margin-bottom:1.5rem;"><h4 style="color:var(--text-secondary); margin-bottom:0.5rem;">Acquisitions</h4>';
     if (data.acquisitions.length === 0) html += '<p style="color:var(--text-secondary)">No acquisition data.</p>';
     data.acquisitions.forEach(a => { html += `<div class="kpi-card" style="padding:0.5rem; margin-bottom:0.5rem;">Source: ${a.source} | Campaign: ${a.utm_campaign || 'N/A'}</div>`; });
     html += '</div>';
 
-    html += '<div style="margin-bottom:1.5rem;"><h4 class="text-sm font-bold text-gray-400 mb-2">Events (Conversions & Opens)</h4>';
+    html += '<div style="margin-bottom:1.5rem;"><h4 style="color:var(--text-secondary); margin-bottom:0.5rem;">Events (Conversions & Opens)</h4>';
     if (data.events.length === 0) html += '<p style="color:var(--text-secondary)">No events recorded.</p>';
     data.events.forEach(ev => { html += `<div class="kpi-card" style="padding:0.5rem; margin-bottom:0.5rem;">${ev.event_type} <span style="color:var(--text-secondary);">(${ev.event_value || ''})</span> - ${new Date(ev.created_at).toLocaleString()}</div>`; });
     html += '</div>';
@@ -228,7 +235,7 @@ async function openJourneyModal(uid) {
 
 
 // =============================================
-// 3) Raw Data Viewer Page Logic
+// 3) منطق عارض البيانات الخام (Raw Data Viewer Page Logic)
 // =============================================
 
 let dataViewerState = { currentTable: 'visitor_profiles', currentPage: 1, totalPages: 1, data: [] };
@@ -239,7 +246,7 @@ function initDataViewer() {
 }
 
 function initDataViewerEvents() {
-    // Sidebar Tabs
+    // التبديل بين التبويبات (Sidebar Tabs)
     document.querySelectorAll('.sidebar-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             document.querySelector('.sidebar-btn.active')?.classList.remove('active');
@@ -250,7 +257,7 @@ function initDataViewerEvents() {
         });
     });
 
-    // Pagination
+    // أزرار الصفحات (Pagination)
     document.getElementById('prevBtn')?.addEventListener('click', () => {
         if (dataViewerState.currentPage > 1) { dataViewerState.currentPage--; fetchRawData(); }
     });
@@ -258,7 +265,7 @@ function initDataViewerEvents() {
         if (dataViewerState.currentPage < dataViewerState.totalPages) { dataViewerState.currentPage++; fetchRawData(); }
     });
 
-    // Event Delegation for Table Edit/Delete
+    // تفويض الأحداث لأزرار التعديل والحذف (Event Delegation)
     document.getElementById('tableBody')?.addEventListener('click', async (e) => {
         const target = e.target;
         if (target.closest('.raw-edit-btn')) {
@@ -276,7 +283,7 @@ function initDataViewerEvents() {
         }
     });
 
-    // Edit Modal Submits & Close
+    // إغلاق وحفظ نافذة التعديل
     document.getElementById('closeEditModal')?.addEventListener('click', () => closeModal(document.getElementById('editModal')));
     document.getElementById('editForm')?.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -307,7 +314,6 @@ async function fetchRawData() {
         dataViewerState.data = result.data;
         dataViewerState.totalPages = result.pagination.totalPages;
         
-        // Update UI
         document.getElementById('pageInfo').textContent = `Page ${result.pagination.currentPage} of ${result.pagination.totalPages || 1}`;
         document.getElementById('prevBtn').disabled = result.pagination.currentPage <= 1;
         document.getElementById('nextBtn').disabled = result.pagination.currentPage >= result.pagination.totalPages;
@@ -364,7 +370,7 @@ function openRawEditModal(rowData, pk) {
 
 
 // =============================================
-// 4) Global Utilities
+// 4) الأدوات المساعدة العامة (Global Utilities)
 // =============================================
 
 async function apiRequest(endpoint, method = 'GET', body = null) {
@@ -390,13 +396,14 @@ function closeModal(modalElement) { if (modalElement) modalElement.classList.rem
 
 
 // =============================================
-// 5) Bootstrapper
+// 5) محرك التشغيل الرئيسي (Bootstrapper)
 // =============================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    checkAuth();
+    checkAuth(); // التحقق من الصلاحيات أولاً
     initLogout();
 
+    // تشغيل المنطق بناءً على الصفحة التي نحن فيها
     if (document.getElementById('loginForm')) {
         initLogin();
     } 
