@@ -1,105 +1,36 @@
 // functions/api/admin/analytics.js
+// تجميع البيانات للـ KPIs والمخططات
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../config.js';
+import { SUPABASE_URL, SUPABASE_SERVICE_KEY, ADMIN_PASSWORD } from '../config.js';
 
-const supabaseHeaders = {
-  'apikey': SUPABASE_ANON_KEY,
-  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-};
-
-async function getCount(table, query = '') {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
-    headers: { ...supabaseHeaders, 'Prefer': 'count=exact', 'Range': '0-0' }
-  });
-  const contentRange = res.headers.get('content-range');
-  return contentRange ? parseInt(contentRange.split('/')[1]) : 0;
+function checkAuth(request) {
+  const cookieHeader = request.headers.get('cookie') || '';
+  return cookieHeader.includes(`admin_session=${ADMIN_PASSWORD}`);
 }
 
 export async function onRequestGet(context) {
+  if (!checkAuth(context.request)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+
+  const headers = { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` };
+  
   try {
-    const cookie = context.request.headers.get('Cookie') || '';
-    if (!cookie.includes('admin_session=true')) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-    }
+    // جلب إحصائيات عامة بسيطة (يمكن تطويرها لاحقاً برسوم بيانية)
+    const [visitors, hotLeads, conversions, sessions] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?select=uid`, { headers }).then(r => r.json()),
+      fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?lead_status=eq.hot&select=uid`, { headers }).then(r => r.json()),
+      fetch(`${SUPABASE_URL}/rest/v1/events?event_type=eq.affiliate_redirect&select=event_id`, { headers }).then(r => r.json()),
+      fetch(`${SUPABASE_URL}/rest/v1/sessions?select=session_id`, { headers }).then(r => r.json())
+    ]);
 
-    const url = new URL(context.request.url);
-    const range = url.searchParams.get('range') || '7d';
+    const data = {
+      total_visitors: visitors.length,
+      hot_leads: hotLeads.length,
+      total_conversions: conversions.length,
+      total_sessions: sessions.length
+    };
 
-    const now = new Date();
-    let fromDate = new Date();
-    if (range === '1d') fromDate.setDate(now.getDate() - 1);
-    else if (range === '7d') fromDate.setDate(now.getDate() - 7);
-    else if (range === '30d') fromDate.setDate(now.getDate() - 30);
-    else fromDate = new Date('2020-01-01');
-
-    const isoFrom = fromDate.toISOString();
-
-    // 1. جلب الأرقام الرئيسية (KPIs) من الجداول الجديدة
-    const totalVisits = await getCount('sessions', `started_at=gte.${isoFrom}`);
-    const totalVisitors = await getCount('visitor_profiles', `last_seen_at=gte.${isoFrom}`);
-    const totalLeads = await getCount('visitor_profiles', `is_identified=eq.true&last_seen_at=gte.${isoFrom}`);
-    const totalClicks = await getCount('events', `event_type=eq.affiliate_redirect&created_at=gte.${isoFrom}`);
-    
-    const totalBounces = await getCount('sessions', `is_bounce=eq.true&started_at=gte.${isoFrom}`);
-    const bounceRate = totalVisits > 0 ? Math.round((totalBounces / totalVisits) * 100) : 0;
-
-    // 2. جلب بيانات المخطط الزمني (آخر 7 أيام)
-    const chartDays = 7;
-    const chartFromDate = new Date();
-    chartFromDate.setDate(now.getDate() - chartDays);
-    const chartIsoFrom = chartFromDate.toISOString();
-
-    const chartRes = await fetch(`${SUPABASE_URL}/rest/v1/sessions?select=started_at&started_at=gte.${chartIsoFrom}`, {
-      headers: supabaseHeaders
-    });
-    const sessionsData = await chartRes.json();
-
-    const dailyData = {};
-    for (let i = 0; i < chartDays; i++) {
-      const d = new Date();
-      d.setDate(now.getDate() - i);
-      const key = d.toISOString().split('T')[0];
-      dailyData[key] = 0;
-    }
-
-    sessionsData.forEach(s => {
-      const dayKey = s.started_at.split('T')[0];
-      if (dailyData[dayKey] !== undefined) dailyData[dayKey]++;
-    });
-
-    const chartArray = Object.entries(dailyData).map(([date, count]) => ({
-      date: date.substring(5), visits: count
-    })).reverse();
-
-    // 3. حساب مصادر الزيارات (Traffic Sources) من جدول acquisitions
-    const sourcesRes = await fetch(`${SUPABASE_URL}/rest/v1/acquisitions?select=source&first_visit_at=gte.${isoFrom}`, {
-      headers: supabaseHeaders
-    });
-    const sourcesData = await sourcesRes.json();
-    
-    const sourceCounts = {};
-    sourcesData.forEach(v => {
-      const source = v.source || 'direct';
-      sourceCounts[source] = (sourceCounts[source] || 0) + 1;
-    });
-
-    const totalSources = sourcesData.length;
-    const sourcesArray = Object.entries(sourceCounts).map(([name, count]) => ({
-      name: name,
-      count: count,
-      percentage: totalSources > 0 ? Math.round((count / totalSources) * 100) : 0
-    })).sort((a, b) => b.count - a.count);
-
-    return new Response(JSON.stringify({ 
-      kpis: { totalVisits, totalVisitors, totalLeads, totalClicks, bounceRate },
-      chart: chartArray,
-      sources: sourcesArray
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    return new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: 'Analytics fetch failed' }), { status: 500 });
   }
 }

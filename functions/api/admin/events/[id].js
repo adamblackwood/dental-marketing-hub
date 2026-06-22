@@ -1,36 +1,16 @@
 // functions/api/admin/events/[id].js
+// DELETE حذف حدث
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../../config.js';
+import { SUPABASE_URL, SUPABASE_SERVICE_KEY, ADMIN_PASSWORD } from '../../config.js';
 
-const supabaseHeaders = {
-  'apikey': SUPABASE_ANON_KEY,
-  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-  'Content-Type': 'application/json',
-  'Prefer': 'return=minimal'
-};
-
-// 🚀 حذف الحدث
 export async function onRequestDelete(context) {
-  try {
-    const cookie = context.request.headers.get('Cookie') || '';
-    if (!cookie.includes('admin_session=true')) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-    }
-    
-    const event_id = context.params.id;
-    
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/events?event_id=eq.${event_id}`, {
-      method: 'DELETE',
-      headers: supabaseHeaders
-    });
-    
-    if (!res.ok) throw new Error('Failed to delete event');
-    
-    return new Response(JSON.stringify({ success: true }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-  }
+  const cookieHeader = context.request.headers.get('cookie') || '';
+  if (!cookieHeader.includes(`admin_session=${ADMIN_PASSWORD}`)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+  
+  const eventId = context.params.id;
+  await fetch(`${SUPABASE_URL}/rest/v1/events?event_id=eq.${eventId}`, {
+    method: 'DELETE',
+    headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` }
+  });
+  return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
 }

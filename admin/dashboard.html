@@ -1,134 +1,113 @@
+<!-- admin/dashboard.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Command Center | Dental Marketing Hub</title>
+    <title>Dashboard - Dental Hub</title>
     <link rel="stylesheet" href="/assets/css/dashboard.css">
 </head>
-<body>
+<body id="dashboardPage">
 
-    <!-- Top Navigation Bar -->
-    <header class="top-nav">
-        <div class="brand">
-            <span class="logo-icon">🦷</span>
-            <div class="brand-text">
-                <h1>DentalHub</h1>
-                <p>Command Center</p>
-            </div>
+    <div class="header">
+        <h1>Dental Marketing Hub</h1>
+        <div class="header-actions">
+            <a href="/admin/data-viewer.html" class="btn btn-ghost btn-sm">Raw Data</a>
+            <button id="logoutBtn" class="btn btn-danger btn-sm">Logout</button>
         </div>
-        
-        <div class="nav-controls">
-            <!-- Date Filter -->
-            <div class="control-group">
-                <span class="control-label">Period:</span>
-                <select id="date-filter" class="control-input">
-                    <option value="1d">Today</option>
-                    <option value="7d" selected>Last 7 Days</option>
-                    <option value="30d">Last 30 Days</option>
-                    <option value="all">All Time</option>
-                </select>
+    </div>
+
+    <div class="container">
+        <!-- KPIs -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <h3>Total Visitors</h3>
+                <div class="value" id="kpiVisitors">0</div>
             </div>
-
-            <!-- The Famous Toggle Switch -->
-            <div class="toggle-switch-container">
-                <span class="toggle-label active" id="label-data">Data View</span>
-                <label class="toggle-switch">
-                    <input type="checkbox" id="view-toggle">
-                    <span class="slider"></span>
-                </label>
-                <span class="toggle-label" id="label-analytics">Analytics</span>
+            <div class="kpi-card">
+                <h3>Hot Leads</h3>
+                <div class="value" id="kpiHotLeads" style="color: #ef4444;">0</div>
             </div>
-
-            <button id="logout-btn" class="btn btn-danger-outline">Logout</button>
-        </div>
-    </header>
-
-    <main class="main-container">
-        
-        <!-- Analytics View -->
-        <div id="analytics-view" class="view-section hidden">
-            <h2 class="section-title">Performance Analytics</h2>
-            
-            <!-- KPI Cards -->
-            <div class="kpi-grid" id="kpi-container">
-                <div class="kpi-card">
-                    <div class="kpi-icon blue">👀</div>
-                    <div class="kpi-info"><h3>Total Visits</h3><p id="kpi-visits">0</p></div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-icon purple">👤</div>
-                    <div class="kpi-info"><h3>Unique Visitors</h3><p id="kpi-visitors">0</p></div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-icon green">📝</div>
-                    <div class="kpi-info"><h3>Total Leads</h3><p id="kpi-leads">0</p></div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-icon orange">🔥</div>
-                    <div class="kpi-info"><h3>GHL Clicks</h3><p id="kpi-clicks">0</p></div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-icon red">🚪</div>
-                    <div class="kpi-info"><h3>Bounce Rate</h3><p id="kpi-bounce">0%</p></div>
-                </div>
+            <div class="kpi-card">
+                <h3>Conversions (Affiliate)</h3>
+                <div class="value" id="kpiConversions" style="color: #10b981;">0</div>
             </div>
-
-            <!-- Charts & Sources Grid -->
-            <div class="analytics-grid">
-                <div class="card charts-area">
-                    <!-- Chart rendered by JS -->
-                </div>
-                <div class="card sources-area" id="sources-container">
-                    <!-- Sources rendered by JS -->
-                </div>
+            <div class="kpi-card">
+                <h3>Total Sessions</h3>
+                <div class="value" id="kpiSessions">0</div>
             </div>
         </div>
 
-        <!-- Data Management View -->
-        <div id="data-view" class="view-section">
-            <div class="data-header">
-                <div class="tabs">
-                    <button class="tab-btn active" data-target="visitors">Visitors</button>
-                    <button class="tab-btn" data-target="sessions">Sessions</button>
-                    <button class="tab-btn" data-target="events">Events</button>
-                </div>
-                <button class="btn btn-primary" id="add-new-btn">+ Add Visitor</button>
-            </div>
-
-            <div class="card table-card">
-                <div class="table-wrapper">
-                    <table id="data-table">
-                        <thead id="table-head"></thead>
-                        <tbody id="table-body"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="pagination-wrapper" id="pagination-container"></div>
+        <!-- Visitors Table -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h2>Visitor Profiles</h2>
+            <button id="addVisitorBtn" class="btn btn-primary btn-sm">+ Add Visitor</button>
         </div>
 
-    </main>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>UID</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Status</th>
+                        <th>Visits</th>
+                        <th>Conv.</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="visitorsTableBody">
+                    <tr><td colspan="7" style="text-align: center; padding: 2rem; color: var(--text-secondary);">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 
-    <!-- Modal Overlay (For Edit, Delete, Add, and Journey) -->
-    <div id="modal-overlay" class="modal-overlay hidden">
+    <!-- Add/Edit Visitor Modal -->
+    <div class="modal-overlay" id="visitorModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 id="modal-title">Action</h3>
-                <button class="close-modal-btn" id="close-modal-btn">&times;</button>
+                <h2 id="visitorModalTitle">Add Visitor</h2>
+                <button class="modal-close" id="closeVisitorModal">&times;</button>
             </div>
-            <form id="modal-form">
-                <div id="modal-fields" class="modal-fields"></div>
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-secondary" id="cancel-modal-btn">Cancel</button>
-                    <button type="submit" class="btn btn-primary" id="confirm-modal-btn">Save</button>
+            <form id="visitorForm">
+                <input type="hidden" id="visitorUid">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="identified_name" class="form-input" placeholder="Dr. John Smith">
                 </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="identified_email" class="form-input" placeholder="dr.smith@clinic.com">
+                </div>
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="text" id="phone_number" class="form-input" placeholder="+1234567890">
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select id="lead_status" class="form-input">
+                        <option value="cold">Cold</option>
+                        <option value="warm">Warm</option>
+                        <option value="hot">Hot</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">Save Visitor</button>
             </form>
         </div>
     </div>
 
-    <!-- Toast Notifications Container -->
-    <div id="toast-container" class="toast-container"></div>
+    <!-- Journey 360 Modal -->
+    <div class="modal-overlay" id="journeyModal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2>Customer Journey 360°</h2>
+                <button class="modal-close" id="closeJourneyModal">&times;</button>
+            </div>
+            <div id="journeyContent" style="color: var(--text-secondary);">Select a visitor to view their journey.</div>
+        </div>
+    </div>
 
     <script src="/assets/js/dashboard.js"></script>
 </body>

@@ -1,83 +1,57 @@
 // functions/api/subscribe.js
+// يستقبل بيانات النماذج (Smart Form / Exit Intent) + يحدث بيانات الزائر + يوزع للتليجرام وشيتس
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, GOOGLE_SHEETS_WEBHOOK_URL } from './config.js';
-
-const supabaseHeaders = {
-  'apikey': SUPABASE_ANON_KEY,
-  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-  'Content-Type': 'application/json',
-  'Prefer': 'return=minimal'
-};
+import { SUPABASE_URL, SUPABASE_SERVICE_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GOOGLE_SHEETS_WEBHOOK } from './config.js';
 
 export async function onRequestPost(context) {
   try {
-    const payload = await context.request.json();
-    const { uid, email, name, clinic_size, biggest_challenge, phone_number } = payload;
+    const body = await context.request.json();
+    const { uid, identified_name, identified_email, phone_number, biggest_challenge, form_type } = body;
+    if (!uid || !identified_email) return new Response(JSON.stringify({ error: 'Missing uid or email' }), { status: 400 });
 
-    if (!uid || !email) {
-      return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400 });
+    const headers = { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' };
+
+    // 1. جلب البيانات الحالية لزيادة الـ lead_score
+    const pRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=lead_score,lead_status`, { headers });
+    const profiles = await pRes.json();
+    let newScore = 30; // Default score for form_submit
+    let newStatus = 'warm';
+
+    if (profiles.length > 0) {
+      const currentScore = Number(profiles[0].lead_score) || 0;
+      newScore = currentScore + 30;
+      if (newScore >= 70) newStatus = 'hot'; else if (newScore >= 30) newStatus = 'warm';
     }
 
-    // 1. جلب النقاط والتحويلات الحالية لتجنب التراكم الخاطئ
-    const vRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=lead_score,total_conversions`, { headers: supabaseHeaders });
-    const vData = await vRes.json();
-    const currentScore = Number(vData[0]?.lead_score || 0);
-    const currentConversions = Number(vData[0]?.total_conversions || 0);
-
-    // 2. تحديث ملف الزائر بالبيانات المعروفة وزيادة التحويلات والنقاط
-    const visitorData = {
-      identified_email: email,
-      identified_name: name || null,
-      clinic_size: clinic_size || null,
-      biggest_challenge: biggest_challenge || null,
+    // 2. تحديث ملف الزائر (Upsert)
+    const profileUpdate = {
+      identified_name: identified_name || null,
+      identified_email: identified_email,
       phone_number: phone_number || null,
+      biggest_challenge: biggest_challenge || null,
       is_identified: true,
-      lead_status: 'hot',
-      lead_score: currentScore + 50, // إضافة 50 نقطة للتسجيل
-      total_conversions: currentConversions + 1, // زيادة التحويلات
+      lead_score: newScore,
+      lead_status: newStatus,
       last_seen_at: new Date().toISOString()
     };
 
-    context.waitUntil(fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
-      method: 'PATCH',
-      headers: supabaseHeaders,
-      body: JSON.stringify(visitorData)
-    }));
+    await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, { method: 'PATCH', headers, body: JSON.stringify(profileUpdate) });
 
-    // 3. إدراج حدث التسجيل
-    const eventData = {
-      uid: uid,
-      event_type: 'form_submit',
-      event_value: JSON.stringify({ email, clinic_size })
-    };
-    context.waitUntil(fetch(`${SUPABASE_URL}/rest/v1/events`, {
-      method: 'POST',
-      headers: supabaseHeaders,
-      body: JSON.stringify(eventData)
-    }));
+    // 3. توزيع البيانات (Webhooks) بشكل غير متزامن (لا نعطل الاستجابة للمستخدم)
+    context.waitUntil((async () => {
+      // Telegram
+      if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
+        const text = `🦷 *New Lead (${form_type})*\nName: ${identified_name || 'N/A'}\nEmail: ${identified_email}\nPhone: ${phone_number || 'N/A'}\nChallenge: ${biggest_challenge || 'N/A'}\nUID: ${uid}`;
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'Markdown' }) });
+      }
+      // Google Sheets
+      if (GOOGLE_SHEETS_WEBHOOK) {
+        await fetch(GOOGLE_SHEETS_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...profileUpdate, uid, form_type }) });
+      }
+    })());
 
-    // 4. تنبيه تليجرام
-    const msg = `🟢 <b>New Lead</b>\nName: ${name || 'N/A'}\nEmail: ${email}\nClinic Size: ${clinic_size || 'N/A'}\nUID: <code>${uid}</code>`;
-    context.waitUntil(fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: msg, parse_mode: 'HTML' })
-    }));
-
-    // 5. جوجل شيتس
-    const sheetsData = { timestamp: new Date().toISOString(), email, name: name || '', clinic_size: clinic_size || '', fingerprint_id: uid };
-    context.waitUntil(fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(sheetsData)
-    }));
-
-    return new Response(JSON.stringify({ success: true, redirect: '/thank-you.html' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-  } catch (error) {
-    return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });
+    return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: 'Server Error' }), { status: 500 });
   }
 }

@@ -1,43 +1,34 @@
 // functions/api/profile-status.js
+// يفحص البيانات المفقودة للزائر لعرض النماذج الذكية (مثلاً: إذا لم يقدم الإيميل، يظهر نموذج الإيميل)
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-
-const supabaseHeaders = {
-  'apikey': SUPABASE_ANON_KEY,
-  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-  'Content-Type': 'application/json'
-};
+import { SUPABASE_URL, SUPABASE_SERVICE_KEY } from './config.js';
 
 export async function onRequestGet(context) {
+  const url = new URL(context.request.url);
+  const uid = url.searchParams.get('uid');
+
+  if (!uid) return new Response(JSON.stringify({ error: 'Missing uid' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+
   try {
-    const url = new URL(context.request.url);
-    const uid = url.searchParams.get('uid');
-
-    if (!uid) return new Response(JSON.stringify({ error: 'Missing uid' }), { status: 400 });
-
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=*`, {
-      headers: supabaseHeaders
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=is_identified,identified_email,identified_name,phone_number,biggest_challenge`, {
+      headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` }
     });
+    const data = await res.json();
     
-    const visitors = await res.json();
-    
-    if (visitors.length === 0 || !visitors[0].identified_email) {
-      return new Response(JSON.stringify({ is_known: false, missing_fields: ['identified_email', 'identified_name'] }), {
-        status: 200, headers: { 'Content-Type': 'application/json' }
-      });
-    }
+    if (data.length === 0) return new Response(JSON.stringify({ exists: false }), { headers: { 'Content-Type': 'application/json' } });
 
-    const visitor = visitors[0];
-    const missing = [];
-    if (!visitor.clinic_size) missing.push('clinic_size');
-    if (!visitor.biggest_challenge) missing.push('biggest_challenge');
-    if (!visitor.phone_number) missing.push('phone_number');
+    const profile = data[0];
+    return new Response(JSON.stringify({ 
+      exists: true, 
+      missing_fields: {
+        email: !profile.identified_email,
+        name: !profile.identified_name,
+        phone: !profile.phone_number,
+        challenge: !profile.biggest_challenge
+      }
+    }), { headers: { 'Content-Type': 'application/json' } });
 
-    return new Response(JSON.stringify({ is_known: true, name: visitor.identified_name, missing_fields: missing }), {
-      status: 200, headers: { 'Content-Type': 'application/json' }
-    });
-
-  } catch (error) {
-    return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: 'Failed to fetch profile' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }

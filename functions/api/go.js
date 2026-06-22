@@ -1,70 +1,52 @@
 // functions/api/go.js
+// تتبع نقرة الأفلييت + تسجيل الحدث في events + تحديث total_conversions + إعادة توجيه 302 لرابط الإحالة
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, GHL_AFFILIATE_LINK } from './config.js';
-
-const supabaseHeaders = {
-  'apikey': SUPABASE_ANON_KEY,
-  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-  'Content-Type': 'application/json',
-  'Prefer': 'return=minimal'
-};
+import { SUPABASE_URL, SUPABASE_SERVICE_KEY, GHL_AFFILIATE_LINK } from './config.js';
 
 export async function onRequestGet(context) {
   try {
     const url = new URL(context.request.url);
-    const target = url.searchParams.get('target') || 'ghl';
-    const uid = url.searchParams.get('uid') || 'unknown';
-    const session_id = url.searchParams.get('sid') || null;
+    const uid = url.searchParams.get('uid');
+    const session_id = url.searchParams.get('sid');
 
-    const cf = context.request.cf || {};
-    const country = cf.country || 'Unknown';
+    if (uid) {
+      // تسجيل الحدث في الخلفية بشكل غير متزامن (لا نعطل الـ Redirect للمستخدم)
+      context.waitUntil((async () => {
+        const headers = { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'Content-Type': 'application/json' };
+        
+        // 1. إدراج في events
+        await fetch(`${SUPABASE_URL}/rest/v1/events`, { 
+          method: 'POST', 
+          headers, 
+          body: JSON.stringify({ uid, session_id, event_type: 'affiliate_redirect', event_value: 'ghl_click', created_at: new Date().toISOString() }) 
+        });
 
-    // 1. إدراج الحدث
-    const eventData = {
-      uid: uid,
-      session_id: session_id,
-      event_type: 'affiliate_redirect',
-      event_value: target
-    };
-    
-    context.waitUntil(fetch(`${SUPABASE_URL}/rest/v1/events`, {
-      method: 'POST',
-      headers: supabaseHeaders,
-      body: JSON.stringify(eventData)
-    }));
+        // 2. زيادة total_conversions وتحديث Lead Score
+        const pRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=total_conversions,lead_score,lead_status`, { headers });
+        const profiles = await pRes.json();
+        if (profiles && profiles.length > 0) {
+          const currentConv = Number(profiles[0].total_conversions) || 0;
+          const currentScore = Number(profiles[0].lead_score) || 0;
+          const newScore = currentScore + 50;
+          let newStatus = profiles[0].lead_status;
+          if (newScore >= 70) newStatus = 'hot'; else if (newScore >= 30) newStatus = 'warm';
+          
+          await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, { 
+            method: 'PATCH', 
+            headers, 
+            body: JSON.stringify({ total_conversions: currentConv + 1, lead_score: newScore, lead_status: newStatus }) 
+          });
+        }
+      })());
+    }
 
-    // 2. تحديث ملف الزائر (تصحيح العمليات الحسابية)
-    const vRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=total_conversions,lead_score`, { headers: supabaseHeaders });
-    const vData = await vRes.json();
-    const currentConversions = Number(vData[0]?.total_conversions || 0);
-    const currentScore = Number(vData[0]?.lead_score || 0);
-    
-    const visitorUpdate = {
-      total_conversions: currentConversions + 1,
-      lead_score: currentScore + 20,
-      lead_status: 'hot',
-      last_seen_at: new Date().toISOString()
-    };
+    // إعادة التوجيه الفورية لرابط الإحالة
+    // ميزة إضافية: إرفاق الـ uid كـ sub_id في الرابط لتتبع التحويلات من داخل لوحة تحكم GHL
+    const finalRedirectUrl = uid ? `${GHL_AFFILIATE_LINK}&sub_id=${uid}` : GHL_AFFILIATE_LINK;
+    return Response.redirect(finalRedirectUrl, 302);
 
-    context.waitUntil(fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
-      method: 'PATCH',
-      headers: supabaseHeaders,
-      body: JSON.stringify(visitorUpdate)
-    }));
-
-    // 3. إرسال تليجرام
-    const msg = `🔥 <b>Affiliate Click</b>\nTarget: ${target}\nCountry: ${country}\nUID: <code>${uid}</code>`;
-    context.waitUntil(fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: msg, parse_mode: 'HTML' })
-    }));
-
-    // 4. Redirect 302
-    const redirectUrl = new URL(GHL_AFFILIATE_LINK);
-    return Response.redirect(redirectUrl.toString(), 302);
-
-  } catch (error) {
+  } catch (err) {
+    // في حال حدوث أي خطأ في التتبع، نوجه الزائر فوراً لرابط الإحالة حتى لا نفقد العميل
     return Response.redirect(GHL_AFFILIATE_LINK, 302);
   }
 }

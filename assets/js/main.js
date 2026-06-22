@@ -1,110 +1,165 @@
 // assets/js/main.js
+// النماذج الذكية، Exit Intent، تتبع نقر الأفلييت، وتتبع التحميلات المنطقية
+// تم تحديثه ليتوافق مع نظام أسماء الملفات المنطقية (data-file) بدلاً من الروابط المباشرة
 
-const SiteController = {
-  uid: null,
-  sessionId: null,
+document.addEventListener('DOMContentLoaded', () => {
+    const tracking = window.DentalTracking;
 
-  init() {
-    this.uid = localStorage.getItem('dmr_uid');
-    this.sessionId = sessionStorage.getItem('dmr_session');
-    
-    if (!this.uid) {
-      setTimeout(() => this.init(), 500);
-      return;
-    }
+    // =============================================
+    // 1) النماذج الذكية (Smart Forms)
+    // =============================================
+    const smartForm = document.getElementById('smartForm');
+    const exitForm = document.getElementById('exitForm');
+    const nameGroup = document.getElementById('nameGroup');
+    const challengeGroup = document.getElementById('challengeGroup');
+    const emailGroup = document.getElementById('emailGroup');
+    const smartFormContainer = document.getElementById('smartFormContainer');
+    const thankYouMessage = document.getElementById('thankYouMessage');
 
-    this.setupSmartForms();
-    this.setupAffiliateLinks();
-    this.setupExitIntent();
-  },
-
-  async setupSmartForms() {
-    const form = document.getElementById('smart-lead-form');
-    if (!form) return;
-
-    try {
-      // جلب حالة الزائر بناءً على الـ UID
-      const res = await fetch(`/api/profile-status?uid=${this.uid}`);
-      if (!res.ok) throw new Error('Failed to fetch profile status');
-      const data = await res.json();
-
-      const emailGroup = document.getElementById('group-email');
-      const nameGroup = document.getElementById('group-name');
-      const advGroup = document.getElementById('group-advanced');
-
-      if (data.is_known) {
-        if (emailGroup) emailGroup.style.display = 'none';
-        if (nameGroup) nameGroup.style.display = 'none';
-        const emailInput = document.getElementById('input-email');
-        if (emailInput) emailInput.value = 'known_visitor';
-        
-        if (advGroup) advGroup.style.display = 'block';
-      } else {
-        if (advGroup) advGroup.style.display = 'none';
-      }
-
-      form.addEventListener('submit', (e) => this.handleFormSubmit(e));
-    } catch (error) {
-      console.error('Profile Status Error:', error);
-    }
-  },
-
-  async handleFormSubmit(e) {
-    e.preventDefault();
-    const form = e.target;
-    const formData = new FormData(form);
-    
-    const payload = {
-      uid: this.uid, // إرسال الـ UID
-      email: formData.get('email') !== 'known_visitor' ? formData.get('email') : null,
-      name: formData.get('name') || null,
-      clinic_size: formData.get('clinic_size') || null,
-      biggest_challenge: formData.get('biggest_challenge') || null,
-      phone_number: formData.get('phone_number') || null
-    };
-
-    try {
-      const res = await fetch('/api/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const result = await res.json();
-      if (result.success && result.redirect) {
-        window.location.href = result.redirect;
-      }
-    } catch (error) {
-      console.error('Form submission error:', error);
-    }
-  },
-
-  setupAffiliateLinks() {
-    document.querySelectorAll('a[href*="/api/go"]').forEach(link => {
-      link.addEventListener('click', (e) => {
-        const originalHref = link.getAttribute('href');
-        const url = new URL(originalHref, window.location.origin);
-        
-        // إرفاق الـ UID والـ Session ID ليربطها السيرفر بالحدث
-        url.searchParams.set('uid', this.uid);
-        url.searchParams.set('sid', this.sessionId);
-        
-        link.setAttribute('href', url.toString());
-      });
-    });
-  },
-
-  setupExitIntent() {
-    let exitShown = false;
-    document.addEventListener('mouseout', (e) => {
-      if (e.clientY < 5 && !exitShown) {
-        const modal = document.getElementById('exit-intent-modal');
-        if (modal) {
-          modal.style.display = 'flex';
-          exitShown = true;
+    // فحص بيانات الزائر لعرض الحقول المفقودة فقط
+    async function checkProfileAndAdaptForm() {
+        try {
+            const res = await fetch(`/api/profile-status?uid=${tracking.uid}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.exists && data.missing_fields) {
+                    // عرض الحقل فقط إذا كانت البيانات مفقودة
+                    if (data.missing_fields.name) nameGroup.style.display = 'block';
+                    if (data.missing_fields.challenge) challengeGroup.style.display = 'block';
+                    
+                    // إذا كان الإيميل موجوداً بالفعل، نخفي الحقل
+                    if (!data.missing_fields.email) {
+                        emailGroup.style.display = 'none';
+                    }
+                } else {
+                    // زائر جديد تماماً، نعرض الاسم والإيميل كحل وسط
+                    nameGroup.style.display = 'block';
+                }
+            }
+        } catch (e) { 
+            console.error('Profile check failed', e); 
         }
-      }
-    });
-  }
-};
+    }
+    checkProfileAndAdaptForm();
 
-document.addEventListener('DOMContentLoaded', () => SiteController.init());
+    // إرسال النموذج الرئيسي (Smart Form)
+    if (smartForm) {
+        smartForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(smartForm);
+            const payload = Object.fromEntries(formData.entries());
+            payload.uid = tracking.uid;
+            payload.form_type = 'smart_form';
+
+            try {
+                const res = await fetch('/api/subscribe', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify(payload) 
+                });
+
+                if (res.ok) {
+                    // 1. تسجيل حدث إرسال النموذج في Supabase عبر track.js
+                    tracking.sendTrackRequest('form_submit', { event_value: 'smart_form' });
+
+                    // 2. إخفاء النموذج وإظهار رسالة الشكر
+                    if (smartFormContainer) smartFormContainer.style.display = 'none';
+                    if (thankYouMessage) thankYouMessage.style.display = 'block';
+
+                    // 3. تحميل تلقائي للملف الرئيسي (الدليل الشامل) باستخدام الاسم المنطقي
+                    // هذا الاسم ('ultimate-dental-guide') يجب أن يتطابق مع المفتاح في ملف config.js
+                    setTimeout(() => {
+                        window.location.href = `/api/download?uid=${tracking.uid}&file=ultimate-dental-guide`;
+                    }, 1000); // تأخير ثانية واحدة ليقرأ المستخدم رسالة النجاح
+                }
+            } catch (err) { 
+                console.error('Form submit error', err); 
+            }
+        });
+    }
+
+    // إرسال نموذج Exit Intent
+    if (exitForm) {
+        exitForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('exitEmail').value;
+            
+            try {
+                const res = await fetch('/api/subscribe', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ 
+                        uid: tracking.uid, 
+                        identified_email: email, 
+                        form_type: 'exit_intent' 
+                    }) 
+                });
+
+                if (res.ok) {
+                    tracking.sendTrackRequest('form_submit', { event_value: 'exit_intent' });
+                    const exitModal = document.getElementById('exitModal');
+                    if (exitModal) exitModal.classList.remove('active');
+                    alert('Check your inbox! Your guide is on the way.');
+                }
+            } catch (err) { 
+                console.error('Exit form error', err); 
+            }
+        });
+    }
+
+    // =============================================
+    // 2) Exit Intent Popup
+    // =============================================
+    const exitModal = document.getElementById('exitModal');
+    let exitShown = false;
+
+    document.addEventListener('mouseout', (e) => {
+        // إظهار النافذة فقط إذا وصل الماوس لأعلى المتصفح (للخروج) ولم تُعرض من قبل
+        if (!exitShown && e.clientY < 5) {
+            if (exitModal) exitModal.classList.add('active');
+            exitShown = true;
+        }
+    });
+
+    const closeExitModal = document.getElementById('closeExitModal');
+    if (closeExitModal) {
+        closeExitModal.addEventListener('click', () => {
+            if (exitModal) exitModal.classList.remove('active');
+        });
+    }
+
+    // =============================================
+    // 3) تتبع نقر الأفلييت (GoHighLevel Button)
+    // =============================================
+    const ghlBtn = document.getElementById('ghlAffiliateBtn');
+    if (ghlBtn) {
+        ghlBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            // التوجيه يتم لـ /api/go الذي بدوره يسجل الحدث في Supabase ثم يحول للرابط الأصلي
+            window.location.href = `/api/go?uid=${tracking.uid}&sid=${tracking.sessionId}`;
+        });
+    }
+
+    // =============================================
+    // 4) تتبع روابط التحميل العادية (Resource Links)
+    // =============================================
+    // نلتقط جميع العناصر التي تحتوي على كلاس download-link
+    const downloadLinks = document.querySelectorAll('.download-link');
+    
+    downloadLinks.forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            
+            // نقرأ الاسم المنطقي من خاصية data-file (مثال: ghl-setup-guide)
+            const fileKey = link.dataset.file;
+            
+            if (fileKey) {
+                // التوجيه لـ /api/download الذي سيسجل الحدث ويحول للرابط المباشر من Google Drive
+                window.location.href = `/api/download?uid=${tracking.uid}&file=${fileKey}`;
+            } else {
+                console.error('Missing data-file attribute on download link');
+            }
+        });
+    });
+
+});

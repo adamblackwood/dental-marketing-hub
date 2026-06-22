@@ -1,157 +1,89 @@
 // assets/js/dashboard.js
-// منطق لوحة التحكم الرئيسي: جلب الزوار، إدارة النماذج (Add/Edit)، التفويض الديناميكي للأزرار (Event Delegation)، 
-// وعرض رحلة العميل 360°.
+// منطق الداشبورد: CRUD, Timeline, Pagination, Auth, Event Delegation
 
 const API_BASE = '/api/admin';
+const PK_MAP = {
+    visitor_profiles: 'uid',
+    acquisitions: 'acquisition_id',
+    visits: 'visit_id',
+    sessions: 'session_id',
+    email_activities: 'email_activity_id',
+    events: 'event_id'
+};
 
 // =============================================
-// 1) التهيئة والأدوات المساعدة (Initialization & Utilities)
+// 1) Auth & Initialization
 // =============================================
 
-document.addEventListener('DOMContentLoaded', () => {
-    // التأكد من وجود الصلاحيات (بسيط)
-    checkAuth();
-
-    // ربط الأحداث الثابتة (Static Elements)
-    initStaticListeners();
-
-    // تفويض الأحداث للجداول الديناميكية (Event Delegation)
-    initDelegatedListeners();
-
-    // جلب البيانات الأولية
-    fetchVisitors();
-});
-
-/** فحص وجود كوكي الأدمن (بسيط، الحماية الحقيقية في السيرفر) */
 function checkAuth() {
     if (!document.cookie.includes('admin_session')) {
-        window.location.href = '/admin/login.html';
-    }
-}
-
-/** طلبات API موحدة مع إرسال الكوكيز */
-async function apiRequest(endpoint, method = 'GET', body = null) {
-    const options = {
-        method,
-        credentials: 'include', // إرسال HTTP-only Cookie
-        headers: { 'Content-Type': 'application/json' }
-    };
-    if (body) options.body = JSON.stringify(body);
-
-    try {
-        const res = await fetch(`${API_BASE}${endpoint}`, options);
-        if (res.status === 401) {
+        if (!window.location.pathname.includes('login.html')) {
             window.location.href = '/admin/login.html';
-            return null;
         }
-        if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.error || `Request failed with status ${res.status}`);
-        }
-        if (res.status === 204) return true; // No Content (للحذف)
-        return await res.json();
-    } catch (err) {
-        console.error(`API Error [${method} ${endpoint}]:`, err.message);
-        alert(`خطأ: ${err.message}`);
-        return null;
     }
 }
 
-// =============================================
-// 2) ربط الأحداث (Event Listeners)
-// =============================================
+function initLogin() {
+    const loginForm = document.getElementById('loginForm');
+    if (!loginForm) return;
 
-function initStaticListeners() {
-    // زر فتح نافذة إضافة زائر جديد
-    const addVisitorBtn = document.getElementById('addVisitorBtn');
-    const visitorModal = document.getElementById('visitorModal');
-    const closeVisitorModal = document.getElementById('closeVisitorModal');
-    const visitorForm = document.getElementById('visitorForm');
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const password = document.getElementById('password').value;
+        const loginError = document.getElementById('loginError');
+        loginError.style.display = 'none';
 
-    if (addVisitorBtn) {
-        addVisitorBtn.addEventListener('click', () => {
-            // مسح الحقول قبل الفتح
-            if (visitorForm) visitorForm.reset();
-            document.getElementById('visitorUid').value = ''; // التأكد من أن الـ UID فارغ للإضافة
-            openModal(visitorModal);
-        });
-    }
+        try {
+            const res = await fetch(`${API_BASE}/auth`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
 
-    if (closeVisitorModal) {
-        closeVisitorModal.addEventListener('click', () => closeModal(visitorModal));
-    }
-
-    if (visitorForm) {
-        visitorForm.addEventListener('submit', handleVisitorFormSubmit);
-    }
-
-    // أحداث نافذة الـ Journey
-    const journeyModal = document.getElementById('journeyModal');
-    const closeJourneyModal = document.getElementById('closeJourneyModal');
-
-    if (closeJourneyModal) {
-        closeJourneyModal.addEventListener('click', () => closeModal(journeyModal));
-    }
+            if (res.ok) {
+                window.location.href = '/admin/dashboard.html';
+            } else {
+                loginError.style.display = 'block';
+                loginError.textContent = 'Invalid password. Please try again.';
+            }
+        } catch (err) {
+            loginError.style.display = 'block';
+            loginError.textContent = 'Network error. Please try again.';
+        }
+    });
 }
 
-function initDelegatedListeners() {
-    const visitorsTableBody = document.getElementById('visitorsTableBody');
-
-    if (visitorsTableBody) {
-        // تفويض الحدث للعنصر الأب الثابت لالتقاط النقر على الأزرار الديناميكية
-        visitorsTableBody.addEventListener('click', (e) => {
-            const target = e.target;
-
-            // زر رحلة العميل 360°
-            const journeyBtn = target.closest('.journey-btn');
-            if (journeyBtn) {
-                const uid = journeyBtn.dataset.uid;
-                if (uid) openJourneyModal(uid);
-                return;
-            }
-
-            // زر تعديل الزائر
-            const editBtn = target.closest('.edit-btn');
-            if (editBtn) {
-                const uid = editBtn.dataset.uid;
-                if (uid) loadVisitorForEdit(uid);
-                return;
-            }
-
-            // زر حذف الزائر
-            const deleteBtn = target.closest('.delete-btn');
-            if (deleteBtn) {
-                const uid = deleteBtn.dataset.uid;
-                if (uid) deleteVisitor(uid);
-                return;
-            }
+function initLogout() {
+    const logoutBtn = document.getElementById('logoutBtn') || document.getElementById('logoutBtnData');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            await fetch(`${API_BASE}/auth`, { method: 'DELETE' });
+            window.location.href = '/admin/login.html';
         });
     }
 }
 
 // =============================================
-// 3) إدارة النوافذ المنبثقة (Modals)
+// 2) Dashboard Page Logic
 // =============================================
 
-function openModal(modalElement) {
-    if (modalElement) {
-        modalElement.classList.remove('hidden');
-        modalElement.classList.add('flex');
-    }
+let allVisitors = [];
+
+function initDashboard() {
+    fetchAnalytics();
+    fetchVisitors();
+    initDashboardEvents();
 }
 
-function closeModal(modalElement) {
-    if (modalElement) {
-        modalElement.classList.add('hidden');
-        modalElement.classList.remove('flex');
+async function fetchAnalytics() {
+    const data = await apiRequest('/analytics');
+    if (data) {
+        document.getElementById('kpiVisitors').textContent = data.total_visitors || 0;
+        document.getElementById('kpiHotLeads').textContent = data.hot_leads || 0;
+        document.getElementById('kpiConversions').textContent = data.total_conversions || 0;
+        document.getElementById('kpiSessions').textContent = data.total_sessions || 0;
     }
 }
-
-// =============================================
-// 4) الزوار CRUD Operations
-// =============================================
-
-let allVisitors = []; // تخزين مؤقت للبيانات لتسريع البحث/التعديل
 
 async function fetchVisitors() {
     const data = await apiRequest('/visitors');
@@ -166,182 +98,312 @@ function renderVisitorsTable(visitors) {
     if (!tbody) return;
 
     if (visitors.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-gray-400">لا يوجد زوار بعد</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem; color: var(--text-secondary);">No visitors found</td></tr>`;
         return;
     }
 
     tbody.innerHTML = visitors.map(v => `
-        <tr class="border-b border-gray-700 hover:bg-gray-800 transition-colors">
-            <td class="px-4 py-3 text-sm text-gray-300 font-mono">${v.uid.substring(0, 8)}...</td>
-            <td class="px-4 py-3 text-sm text-white">${v.identified_name || '<span class="text-gray-500">مجهول</span>'}</td>
-            <td class="px-4 py-3 text-sm text-gray-300">${v.identified_email || '-'}</td>
-            <td class="px-4 py-3 text-sm">
-                <span class="px-2 py-1 rounded text-xs font-bold ${
-                    v.lead_status === 'hot' ? 'bg-red-900 text-red-200' :
-                    v.lead_status === 'warm' ? 'bg-yellow-900 text-yellow-200' :
-                    'bg-blue-900 text-blue-200'
-                }">${v.lead_status || 'cold'}</span>
-            </td>
-            <td class="px-4 py-3 text-sm text-gray-300 text-center">${v.total_visits || 0}</td>
-            <td class="px-4 py-3 text-sm text-gray-300 text-center">${v.total_conversions || 0}</td>
-            <td class="px-4 py-3 text-sm flex gap-2">
-                <button class="journey-btn bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs" data-uid="${v.uid}">360°</button>
-                <button class="edit-btn bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs" data-uid="${v.uid}">تعديل</button>
-                <button class="delete-btn bg-red-700 hover:bg-red-800 text-white px-2 py-1 rounded text-xs" data-uid="${v.uid}">حذف</button>
+        <tr>
+            <td style="font-family: monospace; font-size: 0.8rem;">${v.uid.substring(0, 8)}...</td>
+            <td>${v.identified_name || '<span style="color:var(--text-secondary)">Unknown</span>'}</td>
+            <td>${v.identified_email || '-'}</td>
+            <td><span class="badge badge-${v.lead_status || 'cold'}">${v.lead_status || 'cold'}</span></td>
+            <td>${v.total_visits || 0}</td>
+            <td>${v.total_conversions || 0}</td>
+            <td style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-indigo btn-sm journey-btn" data-uid="${v.uid}">360°</button>
+                <button class="btn btn-ghost btn-sm edit-btn" data-uid="${v.uid}">Edit</button>
+                <button class="btn btn-danger btn-sm delete-btn" data-uid="${v.uid}">Del</button>
             </td>
         </tr>
     `).join('');
 }
 
-async function loadVisitorForEdit(uid) {
-    const visitor = allVisitors.find(v => v.uid === uid);
-    if (!visitor) return;
+function initDashboardEvents() {
+    const tbody = document.getElementById('visitorsTableBody');
+    const addVisitorBtn = document.getElementById('addVisitorBtn');
+    const visitorModal = document.getElementById('visitorModal');
+    const journeyModal = document.getElementById('journeyModal');
 
+    // Event Delegation for Table Actions
+    if (tbody) {
+        tbody.addEventListener('click', async (e) => {
+            const target = e.target;
+
+            if (target.closest('.journey-btn')) {
+                const uid = target.closest('.journey-btn').dataset.uid;
+                await openJourneyModal(uid);
+            } 
+            else if (target.closest('.edit-btn')) {
+                const uid = target.closest('.edit-btn').dataset.uid;
+                const visitor = allVisitors.find(v => v.uid === uid);
+                if (visitor) openEditVisitorModal(visitor);
+            }
+            else if (target.closest('.delete-btn')) {
+                const uid = target.closest('.delete-btn').dataset.uid;
+                if (confirm('Are you sure you want to delete this visitor and all related data?')) {
+                    await apiRequest(`/visitors/${uid}`, 'DELETE');
+                    await fetchVisitors();
+                    await fetchAnalytics();
+                }
+            }
+        });
+    }
+
+    // Add Visitor Button
+    if (addVisitorBtn) {
+        addVisitorBtn.addEventListener('click', () => {
+            document.getElementById('visitorForm').reset();
+            document.getElementById('visitorUid').value = '';
+            document.getElementById('visitorModalTitle').textContent = 'Add Visitor';
+            openModal(visitorModal);
+        });
+    }
+
+    // Close Modals
+    document.getElementById('closeVisitorModal')?.addEventListener('click', () => closeModal(visitorModal));
+    document.getElementById('closeJourneyModal')?.addEventListener('click', () => closeModal(journeyModal));
+
+    // Save Visitor Form Submit
+    document.getElementById('visitorForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const uid = document.getElementById('visitorUid').value;
+        const payload = {
+            identified_name: document.getElementById('identified_name').value,
+            identified_email: document.getElementById('identified_email').value,
+            phone_number: document.getElementById('phone_number').value,
+            lead_status: document.getElementById('lead_status').value,
+            is_identified: true
+        };
+
+        if (uid) {
+            await apiRequest(`/visitors/${uid}`, 'PATCH', payload);
+        } else {
+            payload.uid = crypto.randomUUID();
+            payload.total_visits = 0; payload.total_conversions = 0; payload.lead_score = 0;
+            await apiRequest('/visitors', 'POST', payload);
+        }
+        
+        closeModal(visitorModal);
+        await fetchVisitors();
+        await fetchAnalytics();
+    });
+}
+
+function openEditVisitorModal(visitor) {
     document.getElementById('visitorUid').value = visitor.uid;
     document.getElementById('identified_name').value = visitor.identified_name || '';
     document.getElementById('identified_email').value = visitor.identified_email || '';
     document.getElementById('phone_number').value = visitor.phone_number || '';
     document.getElementById('lead_status').value = visitor.lead_status || 'cold';
-
+    document.getElementById('visitorModalTitle').textContent = 'Edit Visitor';
     openModal(document.getElementById('visitorModal'));
 }
 
-async function handleVisitorFormSubmit(e) {
-    e.preventDefault();
-
-    const uid = document.getElementById('visitorUid').value;
-    const payload = {
-        identified_name: document.getElementById('identified_name').value,
-        identified_email: document.getElementById('identified_email').value,
-        phone_number: document.getElementById('phone_number').value,
-        lead_status: document.getElementById('lead_status').value,
-        is_identified: true // بمجرد تعبئة البيانات يصبح معرفاً
-    };
-
-    let result;
-    if (uid) {
-        // تعديل (PATCH)
-        result = await apiRequest(`/visitors/${uid}`, 'PATCH', payload);
-    } else {
-        // إضافة جديدة (POST) - نحتاج لتوليد UID
-        payload.uid = crypto.randomUUID();
-        payload.total_visits = 0;
-        payload.total_conversions = 0;
-        payload.lead_score = 0;
-        result = await apiRequest('/visitors', 'POST', payload);
-    }
-
-    if (result) {
-        closeModal(document.getElementById('visitorModal'));
-        await fetchVisitors(); // تحديث الجدول
-    }
-}
-
-async function deleteVisitor(uid) {
-    if (!confirm('هل أنت متأكد من حذف هذا الزائر؟ سيتم حذف كل بياناته المرتبطة.')) return;
-    const result = await apiRequest(`/visitors/${uid}`, 'DELETE');
-    if (result) {
-        await fetchVisitors();
-    }
-}
-
-// =============================================
-// 5) رحلة العميل 360° (Customer Journey)
-// =============================================
-
 async function openJourneyModal(uid) {
-    const journeyModal = document.getElementById('journeyModal');
     const journeyContent = document.getElementById('journeyContent');
-    
-    if (!journeyModal || !journeyContent) return;
-
-    journeyContent.innerHTML = `<div class="text-center text-gray-400 py-8">جاري تحميل بيانات الرحلة...</div>`;
-    openModal(journeyModal);
+    journeyContent.innerHTML = '<p>Loading journey...</p>';
+    openModal(document.getElementById('journeyModal'));
 
     const data = await apiRequest(`/journey?uid=${uid}`);
-
-    if (!data || data.error) {
-        journeyContent.innerHTML = `<div class="text-center text-red-400 py-8">فشل في تحميل البيانات</div>`;
+    if (!data || !data.profile) {
+        journeyContent.innerHTML = '<p>Could not load journey data.</p>';
         return;
     }
 
-    // دمج الأحداث زمنياً (Visitor Profile, Acquisitions, Sessions, Events)
-    const timeline = [];
+    let html = `<h3 style="margin-bottom:1rem;">Profile: ${data.profile.identified_email || uid}</h3>`;
+    
+    html += '<div style="margin-bottom:1.5rem;"><h4 class="text-sm font-bold text-gray-400 mb-2">Acquisitions</h4>';
+    if (data.acquisitions.length === 0) html += '<p style="color:var(--text-secondary)">No acquisition data.</p>';
+    data.acquisitions.forEach(a => { html += `<div class="kpi-card" style="padding:0.5rem; margin-bottom:0.5rem;">Source: ${a.source} | Campaign: ${a.utm_campaign || 'N/A'}</div>`; });
+    html += '</div>';
 
-    // ملف الزائر
-    if (data.profile) {
-        timeline.push({
-            date: data.profile.first_seen_at,
-            type: 'profile_start',
-            title: 'أول ظهور للزائر',
-            details: `الحالة: ${data.profile.lead_status} | النقاط: ${data.profile.lead_score}`
-        });
-    }
+    html += '<div style="margin-bottom:1.5rem;"><h4 class="text-sm font-bold text-gray-400 mb-2">Events (Conversions & Opens)</h4>';
+    if (data.events.length === 0) html += '<p style="color:var(--text-secondary)">No events recorded.</p>';
+    data.events.forEach(ev => { html += `<div class="kpi-card" style="padding:0.5rem; margin-bottom:0.5rem;">${ev.event_type} <span style="color:var(--text-secondary);">(${ev.event_value || ''})</span> - ${new Date(ev.created_at).toLocaleString()}</div>`; });
+    html += '</div>';
 
-    // الحملات والمصادر
-    if (data.acquisitions && data.acquisitions.length > 0) {
-        data.acquisitions.forEach(acq => {
-            timeline.push({
-                date: acq.first_visit_at,
-                type: 'acquisition',
-                title: `مصدر زيارة: ${acq.source || 'مباشر'}`,
-                details: `الحملة: ${acq.utm_campaign || 'لا يوجد'} | المدينة: ${acq.city || 'غير معروفة'}`
-            });
-        });
-    }
-
-    // الجلسات
-    if (data.sessions && data.sessions.length > 0) {
-        data.sessions.forEach(ses => {
-            timeline.push({
-                date: ses.started_at,
-                type: 'session',
-                title: `جلسة تصفح (${ses.device_type || 'غير معروف'})`,
-                details: `المدة: ${ses.duration_sec || 0}ث | التمرير: ${ses.max_scroll_pct || 0}% | ارتداد: ${ses.is_bounce ? 'نعم' : 'لا'}`
-            });
-        });
-    }
-
-    // الأحداث الحرجة
-    if (data.events && data.events.length > 0) {
-        data.events.forEach(evt => {
-            timeline.push({
-                date: evt.created_at,
-                type: 'event',
-                title: `حدث: ${evt.event_type}`,
-                details: `القيمة: ${evt.event_value || '-'}`
-            });
-        });
-    }
-
-    // ترتيب تنازلي (من الأحدث للأقدم)
-    timeline.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-    // عرض الـ Timeline
-    if (timeline.length === 0) {
-        journeyContent.innerHTML = `<div class="text-center text-gray-400 py-8">لا توجد بيانات كافية لعرض الرحلة</div>`;
-        return;
-    }
-
-    journeyContent.innerHTML = `
-        <div class="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
-            ${timeline.map(item => {
-                const colorMap = { profile_start: 'blue', acquisition: 'purple', session: 'gray', event: 'green' };
-                const color = colorMap[item.type] || 'gray';
-                return `
-                    <div class="flex items-start gap-3">
-                        <div class="flex flex-col items-center">
-                            <div class="w-3 h-3 rounded-full bg-${color}-500 mt-1.5"></div>
-                            <div class="w-px h-full bg-gray-700"></div>
-                        </div>
-                        <div>
-                            <p class="text-xs text-gray-500">${new Date(item.date).toLocaleString('en-US', { timeZone: 'America/New_York' })}</p>
-                            <h4 class="text-sm font-bold text-white">${item.title}</h4>
-                            <p class="text-xs text-gray-400 mt-1">${item.details}</p>
-                        </div>
-                    </div>
-                `;
-            }).join('')}
-        </div>
-    `;
+    journeyContent.innerHTML = html;
 }
+
+
+// =============================================
+// 3) Raw Data Viewer Page Logic
+// =============================================
+
+let dataViewerState = { currentTable: 'visitor_profiles', currentPage: 1, totalPages: 1, data: [] };
+
+function initDataViewer() {
+    initDataViewerEvents();
+    fetchRawData();
+}
+
+function initDataViewerEvents() {
+    // Sidebar Tabs
+    document.querySelectorAll('.sidebar-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelector('.sidebar-btn.active')?.classList.remove('active');
+            e.target.classList.add('active');
+            dataViewerState.currentTable = e.target.dataset.table;
+            dataViewerState.currentPage = 1;
+            fetchRawData();
+        });
+    });
+
+    // Pagination
+    document.getElementById('prevBtn')?.addEventListener('click', () => {
+        if (dataViewerState.currentPage > 1) { dataViewerState.currentPage--; fetchRawData(); }
+    });
+    document.getElementById('nextBtn')?.addEventListener('click', () => {
+        if (dataViewerState.currentPage < dataViewerState.totalPages) { dataViewerState.currentPage++; fetchRawData(); }
+    });
+
+    // Event Delegation for Table Edit/Delete
+    document.getElementById('tableBody')?.addEventListener('click', async (e) => {
+        const target = e.target;
+        if (target.closest('.raw-edit-btn')) {
+            const id = target.closest('.raw-edit-btn').dataset.id;
+            const pk = target.closest('.raw-edit-btn').dataset.pk;
+            const row = dataViewerState.data.find(r => r[pk] == id);
+            if (row) openRawEditModal(row, pk);
+        }
+        else if (target.closest('.raw-delete-btn')) {
+            const id = target.closest('.raw-delete-btn').dataset.id;
+            if (confirm('Delete this record permanently?')) {
+                await apiRequest(`/raw-data?table=${dataViewerState.currentTable}&id=${id}`, 'DELETE');
+                await fetchRawData();
+            }
+        }
+    });
+
+    // Edit Modal Submits & Close
+    document.getElementById('closeEditModal')?.addEventListener('click', () => closeModal(document.getElementById('editModal')));
+    document.getElementById('editForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('editRecordId').value;
+        const table = document.getElementById('editTableName').value;
+        const pk = document.getElementById('editPkName').value;
+        
+        const payload = {};
+        const inputs = document.querySelectorAll('#formFields input, #formFields select');
+        inputs.forEach(inp => { if (inp.name !== pk) payload[inp.name] = inp.value; });
+
+        await apiRequest(`/raw-data?table=${table}&id=${id}`, 'PATCH', payload);
+        closeModal(document.getElementById('editModal'));
+        await fetchRawData();
+    });
+}
+
+async function fetchRawData() {
+    const tbody = document.getElementById('tableBody');
+    const thead = document.getElementById('tableHead');
+    if (!tbody || !thead) return;
+
+    tbody.innerHTML = `<tr><td colspan="20" style="text-align:center; padding:2rem; color:var(--text-secondary);">Loading...</td></tr>`;
+
+    const result = await apiRequest(`/raw-data?table=${dataViewerState.currentTable}&page=${dataViewerState.currentPage}`);
+    
+    if (result && result.data) {
+        dataViewerState.data = result.data;
+        dataViewerState.totalPages = result.pagination.totalPages;
+        
+        // Update UI
+        document.getElementById('pageInfo').textContent = `Page ${result.pagination.currentPage} of ${result.pagination.totalPages || 1}`;
+        document.getElementById('prevBtn').disabled = result.pagination.currentPage <= 1;
+        document.getElementById('nextBtn').disabled = result.pagination.currentPage >= result.pagination.totalPages;
+
+        if (result.data.length === 0) {
+            thead.innerHTML = ''; 
+            tbody.innerHTML = `<tr><td colspan="20" style="text-align:center; padding:2rem; color:var(--text-secondary);">No data found</td></tr>`;
+            return;
+        }
+
+        const columns = Object.keys(result.data[0]);
+        const pk = PK_MAP[dataViewerState.currentTable];
+
+        thead.innerHTML = `<tr>${columns.map(c => `<th>${c}</th>`).join('')}<th>Actions</th></tr>`;
+        tbody.innerHTML = result.data.map(row => {
+            const rowId = row[pk];
+            const cells = columns.map(col => {
+                let val = row[col];
+                if (val === null || val === undefined) val = '-';
+                if (typeof val === 'string' && val.length > 35) val = val.substring(0, 35) + '...';
+                if (typeof val === 'object') val = JSON.stringify(val);
+                return `<td title="${row[col]}">${val}</td>`;
+            }).join('');
+            return `<tr>${cells}<td><button class="btn btn-ghost btn-sm raw-edit-btn" data-id="${rowId}" data-pk="${pk}">Edit</button> <button class="btn btn-danger btn-sm raw-delete-btn" data-id="${rowId}">Del</button></td></tr>`;
+        }).join('');
+    }
+}
+
+function openRawEditModal(rowData, pk) {
+    document.getElementById('editRecordId').value = rowData[pk];
+    document.getElementById('editTableName').value = dataViewerState.currentTable;
+    document.getElementById('editPkName').value = pk;
+    document.getElementById('modalTitle').innerText = `Edit Record (${pk}: ${rowData[pk]})`;
+
+    const formFields = document.getElementById('formFields');
+    formFields.innerHTML = '';
+
+    Object.keys(rowData).forEach(col => {
+        let val = rowData[col];
+        if (val === null || val === undefined) val = '';
+        if (typeof val === 'object') val = JSON.stringify(val);
+        const isDisabled = col === pk ? 'disabled' : '';
+        
+        formFields.innerHTML += `
+            <div class="form-group">
+                <label>${col}</label>
+                <input type="text" name="${col}" class="form-input" value="${val}" ${isDisabled}>
+            </div>
+        `;
+    });
+
+    openModal(document.getElementById('editModal'));
+}
+
+
+// =============================================
+// 4) Global Utilities
+// =============================================
+
+async function apiRequest(endpoint, method = 'GET', body = null) {
+    const options = { method, credentials: 'include', headers: { 'Content-Type': 'application/json' } };
+    if (body) options.body = JSON.stringify(body);
+
+    try {
+        const res = await fetch(`${API_BASE}${endpoint}`, options);
+        if (res.status === 401) { window.location.href = '/admin/login.html'; return null; }
+        if (res.status === 204) return true; // DELETE success
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'API Error');
+        return data;
+    } catch (err) {
+        console.error(`API Error [${method} ${endpoint}]:`, err);
+        alert(`Error: ${err.message}`);
+        return null;
+    }
+}
+
+function openModal(modalElement) { if (modalElement) modalElement.classList.add('active'); }
+function closeModal(modalElement) { if (modalElement) modalElement.classList.remove('active'); }
+
+
+// =============================================
+// 5) Bootstrapper
+// =============================================
+
+document.addEventListener('DOMContentLoaded', () => {
+    checkAuth();
+    initLogout();
+
+    if (document.getElementById('loginForm')) {
+        initLogin();
+    } 
+    else if (document.getElementById('dashboardPage')) {
+        initDashboard();
+    } 
+    else if (document.getElementById('dataViewerPage')) {
+        initDataViewer();
+    }
+});

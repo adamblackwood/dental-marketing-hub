@@ -1,94 +1,44 @@
 <!-- admin/data-viewer.html -->
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Data Viewer - Dental Marketing Hub</title>
-    <style>
-        :root {
-            --bg-main: #0f172a;
-            --bg-card: #1e293b;
-            --bg-hover: #334155;
-            --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
-            --accent: #3b82f6;
-            --danger: #ef4444;
-            --success: #10b981;
-            --border: #334155;
-        }
-
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
-        
-        body { background-color: var(--bg-main); color: var(--text-primary); min-height: 100vh; display: flex; flex-direction: column; }
-
-        .header { padding: 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-        .header h1 { font-size: 1.25rem; font-weight: 600; }
-        .header a { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
-
-        .container { display: flex; flex: 1; }
-        
-        /* Sidebar Tabs */
-        .sidebar { width: 240px; background-color: var(--bg-card); border-right: 1px solid var(--border); padding: 1rem 0; }
-        .tab-btn { display: block; width: 100%; text-align: left; padding: 0.75rem 1.5rem; background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.95rem; transition: all 0.2s; }
-        .tab-btn:hover { background-color: var(--bg-hover); color: var(--text-primary); }
-        .tab-btn.active { background-color: var(--bg-hover); color: var(--accent); border-left: 4px solid var(--accent); padding-left: calc(1.5rem - 4px); }
-
-        /* Main Content */
-        .main-content { flex: 1; padding: 1.5rem; overflow-x: auto; }
-        .pagination { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; color: var(--text-secondary); font-size: 0.9rem; }
-        .pagination button { background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; }
-        .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        /* Table */
-        .data-table { width: 100%; border-collapse: collapse; background: var(--bg-card); border-radius: 8px; overflow: hidden; }
-        .data-table th, .data-table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .data-table th { background-color: var(--bg-hover); color: var(--text-secondary); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
-        .data-table tr:hover { background-color: rgba(255,255,255,0.03); }
-        .action-btns { display: flex; gap: 0.5rem; }
-        .btn-sm { padding: 0.25rem 0.75rem; border-radius: 4px; border: none; cursor: pointer; font-size: 0.8rem; color: white; }
-        .btn-edit { background-color: var(--accent); }
-        .btn-delete { background-color: var(--danger); }
-
-        /* Modal */
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 50; }
-        .modal-overlay.active { display: flex; }
-        .modal-content { background: var(--bg-card); width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto; border-radius: 8px; padding: 2rem; border: 1px solid var(--border); }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
-        .modal-close { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; }
-        .form-group { margin-bottom: 1rem; }
-        .form-group label { display: block; color: var(--text-secondary); margin-bottom: 0.5rem; font-size: 0.85rem; }
-        .form-group input { width: 100%; padding: 0.5rem; background: var(--bg-main); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); }
-        .submit-btn { width: 100%; padding: 0.75rem; background-color: var(--success); border: none; color: white; font-weight: bold; border-radius: 4px; cursor: pointer; margin-top: 1rem; }
-    </style>
+    <title>Raw Data Viewer - Dental Hub</title>
+    <link rel="stylesheet" href="/assets/css/dashboard.css">
 </head>
-<body>
+<body id="dataViewerPage">
 
     <div class="header">
         <h1>Raw Data Viewer</h1>
-        <a href="/admin/dashboard.html">← Back to Dashboard</a>
+        <div class="header-actions">
+            <a href="/admin/dashboard.html" class="btn btn-ghost btn-sm">← Back to Dashboard</a>
+            <button id="logoutBtnData" class="btn btn-danger btn-sm">Logout</button>
+        </div>
     </div>
 
-    <div class="container">
+    <div class="data-viewer-layout">
         <div class="sidebar">
-            <button class="tab-btn active" data-table="visitor_profiles">Visitor Profiles</button>
-            <button class="tab-btn" data-table="acquisitions">Acquisitions</button>
-            <button class="tab-btn" data-table="visits">Visits</button>
-            <button class="tab-btn" data-table="sessions">Sessions</button>
-            <button class="tab-btn" data-table="email_activities">Email Activities</button>
-            <button class="tab-btn" data-table="events">Events</button>
+            <button class="sidebar-btn active" data-table="visitor_profiles">Visitor Profiles</button>
+            <button class="sidebar-btn" data-table="acquisitions">Acquisitions</button>
+            <button class="sidebar-btn" data-table="visits">Visits</button>
+            <button class="sidebar-btn" data-table="sessions">Sessions</button>
+            <button class="sidebar-btn" data-table="email_activities">Email Activities</button>
+            <button class="sidebar-btn" data-table="events">Events</button>
         </div>
 
         <div class="main-content">
             <div class="pagination">
-                <button id="prevBtn" disabled>← Previous</button>
+                <button id="prevBtn" class="btn btn-ghost btn-sm" disabled>← Previous</button>
                 <span id="pageInfo">Page 1 of 1</span>
-                <button id="nextBtn">Next →</button>
+                <button id="nextBtn" class="btn btn-ghost btn-sm">Next →</button>
             </div>
-            <table class="data-table">
-                <thead id="tableHead"></thead>
-                <tbody id="tableBody"></tbody>
-            </table>
+            <div class="table-container">
+                <table class="data-table">
+                    <thead id="tableHead"></thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -97,282 +47,18 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2 id="modalTitle">Edit Record</h2>
-                <button class="modal-close" id="closeModal">&times;</button>
+                <button class="modal-close" id="closeEditModal">&times;</button>
             </div>
             <form id="editForm">
                 <div id="formFields"></div>
                 <input type="hidden" id="editRecordId">
                 <input type="hidden" id="editTableName">
                 <input type="hidden" id="editPkName">
-                <button type="submit" class="submit-btn">Save Changes</button>
+                <button type="submit" class="btn btn-success" style="width: 100%; margin-top: 1rem; background-color: var(--success);">Save Changes</button>
             </form>
         </div>
     </div>
 
-    <script>
-        // Simple Auth Check
-        if (!document.cookie.includes('admin_session')) {
-            window.location.href = '/admin/login.html';
-        }
-
-        const API_BASE = '/api/admin/raw-data';
-        const PK_MAP = {
-            visitor_profiles: 'uid',
-            acquisitions: 'acquisition_id',
-            visits: 'visit_id',
-            sessions: 'session_id',
-            email_activities: 'email_activity_id',
-            events: 'event_id'
-        };
-
-        let state = {
-            currentTable: 'visitor_profiles',
-            currentPage: 1,
-            totalPages: 1,
-            data: []
-        ];
-
-        // DOM Elements
-        const tableHead = document.getElementById('tableHead');
-        const tableBody = document.getElementById('tableBody');
-        const pageInfo = document.getElementById('pageInfo');
-        const prevBtn = document.getElementById('prevBtn');
-        const nextBtn = document.getElementById('nextBtn');
-        const editModal = document.getElementById('editModal');
-        const editForm = document.getElementById('editForm');
-        const formFields = document.getElementById('formFields');
-
-        // =============================================
-        // 1) Tab Switching
-        // =============================================
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                document.querySelector('.tab-btn.active').classList.remove('active');
-                e.target.classList.add('active');
-                state.currentTable = e.target.dataset.table;
-                state.currentPage = 1; // Reset page
-                fetchData();
-            });
-        });
-
-        // =============================================
-        // 2) Pagination Controls
-        // =============================================
-        prevBtn.addEventListener('click', () => {
-            if (state.currentPage > 1) {
-                state.currentPage--;
-                fetchData();
-            }
-        });
-
-        nextBtn.addEventListener('click', () => {
-            if (state.currentPage < state.totalPages) {
-                state.currentPage++;
-                fetchData();
-            }
-        });
-
-        // =============================================
-        // 3) Fetch Data from API
-        // =============================================
-        async function fetchData() {
-            tableBody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:2rem;">Loading...</td></tr>`;
-            
-            try {
-                const res = await fetch(`${API_BASE}?table=${state.currentTable}&page=${state.currentPage}`, {
-                    credentials: 'include'
-                });
-                
-                if (res.status === 401) {
-                    window.location.href = '/admin/login.html';
-                    return;
-                }
-
-                const result = await res.json();
-                
-                if (result.error) {
-                    tableBody.innerHTML = `<tr><td colspan="10" style="color:red; text-align:center;">${result.error}</td></tr>`;
-                    return;
-                }
-
-                state.data = result.data;
-                state.totalPages = result.pagination.totalPages;
-                
-                updatePaginationUI();
-                renderTable();
-                
-            } catch (err) {
-                console.error('Fetch Error:', err);
-                tableBody.innerHTML = `<tr><td colspan="10" style="color:red; text-align:center;">Failed to load data</td></tr>`;
-            }
-        }
-
-        function updatePaginationUI() {
-            pageInfo.textContent = `Page ${state.currentPage} of ${state.totalPages || 1}`;
-            prevBtn.disabled = state.currentPage <= 1;
-            nextBtn.disabled = state.currentPage >= state.totalPages;
-        }
-
-        // =============================================
-        // 4) Render Table Dynamically
-        // =============================================
-        function renderTable() {
-            if (!state.data || state.data.length === 0) {
-                tableHead.innerHTML = '';
-                tableBody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:2rem; color:#94a3b8;">No data found</td></tr>`;
-                return;
-            }
-
-            // Extract columns from the first object's keys
-            const columns = Object.keys(state.data[0]);
-            const pk = PK_MAP[state.currentTable];
-
-            // Render Header
-            tableHead.innerHTML = `<tr>${columns.map(col => `<th>${col}</th>`).join('')}<th>Actions</th></tr>`;
-
-            // Render Body using Event Delegation preparation (data attributes)
-            tableBody.innerHTML = state.data.map(row => {
-                const rowId = row[pk];
-                const cells = columns.map(col => {
-                    let val = row[col];
-                    if (val === null || val === undefined) val = '-';
-                    if (typeof val === 'object') val = JSON.stringify(val); // For JSONB columns if any
-                    if (typeof val === 'string' && val.length > 30) val = val.substring(0, 30) + '...';
-                    return `<td title="${row[col]}">${val}</td>`;
-                }).join('');
-
-                return `
-                    <tr>
-                        ${cells}
-                        <td>
-                            <div class="action-btns">
-                                <button class="btn-sm btn-edit edit-btn" data-id="${rowId}" data-pk="${pk}">Edit</button>
-                                <button class="btn-sm btn-delete delete-btn" data-id="${rowId}" data-pk="${pk}">Delete</button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        // =============================================
-        // 5) Event Delegation for Edit & Delete
-        // =============================================
-        tableBody.addEventListener('click', async (e) => {
-            const target = e.target;
-
-            // Edit Button
-            if (target.closest('.edit-btn')) {
-                const btn = target.closest('.edit-btn');
-                const id = btn.dataset.id;
-                const pk = btn.dataset.pk;
-                const rowData = state.data.find(r => r[pk] == id); // Use == in case ID is numeric string
-                
-                if (rowData) {
-                    openEditModal(rowData, pk);
-                }
-            }
-
-            // Delete Button
-            if (target.closest('.delete-btn')) {
-                const btn = target.closest('.delete-btn');
-                const id = btn.dataset.id;
-                
-                if (confirm('Are you sure you want to delete this record? This cannot be undone.')) {
-                    try {
-                        const res = await fetch(`${API_BASE}?table=${state.currentTable}&id=${id}`, {
-                            method: 'DELETE',
-                            credentials: 'include'
-                        });
-                        const result = await res.json();
-                        
-                        if (result.success) {
-                            await fetchData(); // Refresh table
-                        } else {
-                            alert('Failed to delete: ' + (result.error || 'Unknown error'));
-                        }
-                    } catch (err) {
-                        alert('Delete request failed');
-                    }
-                }
-            }
-        });
-
-        // =============================================
-        // 6) Edit Modal Logic
-        // =============================================
-        function openEditModal(rowData, pk) {
-            document.getElementById('editRecordId').value = rowData[pk];
-            document.getElementById('editTableName').value = state.currentTable;
-            document.getElementById('editPkName').value = pk;
-            document.getElementById('modalTitle').innerText = `Edit Record (${pk}: ${rowData[pk]})`;
-
-            const columns = Object.keys(rowData);
-            formFields.innerHTML = columns.map(col => {
-                let val = rowData[col];
-                if (val === null || val === undefined) val = '';
-                if (typeof val === 'object') val = JSON.stringify(val);
-                
-                // Disable PK field to prevent modification
-                const isDisabled = col === pk ? 'disabled' : '';
-                
-                return `
-                    <div class="form-group">
-                        <label for="edit-${col}">${col}</label>
-                        <input type="text" id="edit-${col}" name="${col}" value="${val}" ${isDisabled}>
-                    </div>
-                `;
-            }).join('');
-
-            editModal.classList.add('active');
-        }
-
-        document.getElementById('closeModal').addEventListener('click', () => {
-            editModal.classList.remove('active');
-        });
-
-        editForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const id = document.getElementById('editRecordId').value;
-            const table = document.getElementById('editTableName').value;
-            const pk = document.getElementById('editPkName').value;
-            
-            const formData = new FormData(editForm);
-            const payload = {};
-            
-            // Construct payload, ignoring the disabled PK field
-            for (let [key, value] of formData.entries()) {
-                if (key !== pk) {
-                    // Basic type coercion (if it looks like a number and isn't a UID, make it a number)
-                    // Keep strings as strings for UIDs and dates
-                    payload[key] = value;
-                }
-            }
-
-            try {
-                const res = await fetch(`${API_BASE}?table=${table}&id=${id}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                    credentials: 'include'
-                });
-
-                const result = await res.json();
-                
-                if (result.success) {
-                    editModal.classList.remove('active');
-                    await fetchData(); // Refresh table
-                } else {
-                    alert('Failed to update: ' + (result.error || 'Unknown error'));
-                }
-            } catch (err) {
-                alert('Update request failed');
-            }
-        });
-
-        // Initial Load
-        fetchData();
-    </script>
+    <script src="/assets/js/dashboard.js"></script>
 </body>
 </html>

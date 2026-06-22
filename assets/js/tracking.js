@@ -1,117 +1,138 @@
 // assets/js/tracking.js
+// مستشعر المتصفح: توليد UID، استخراج UTMs، إرسال session_start، 
+// إرسال heartbeat محدود، تتبع scroll ذكي (Debounced)، وإرسال exit عبر sendBeacon.
 
-const TrackingEngine = {
-  API_ENDPOINT: '/api/track',
-  HEARTBEAT_INTERVAL: 5000,
-  
-  uid: null,
-  sessionId: null,
-  sessionStartTime: null,
-  maxScroll: 0,
-  utms: {},
-  scrollThresholds: [25, 50, 75, 100],
-  reportedScrolls: new Set(),
+(function() {
+    const API_TRACK = '/api/track';
+    const SESSION_KEY = 'dental_hub_session';
+    const UID_KEY = 'dental_hub_uid';
 
-  init() {
-    // 1. توليد أو استخراج الـ UID (المعرف الأساسي للزائر)
-    this.uid = localStorage.getItem('dmr_uid');
-    if (!this.uid) {
-      this.uid = 'uid_' + crypto.randomUUID().replace(/-/g, '').substring(0, 12);
-      localStorage.setItem('dmr_uid', this.uid);
+    let uid = localStorage.getItem(UID_KEY);
+    if (!uid) {
+        uid = crypto.randomUUID();
+        localStorage.setItem(UID_KEY, uid);
     }
 
-    // 2. معالجة الـ UID القادم من حملات الإيميل البارد (ABM Merge)
+    let sessionId = sessionStorage.getItem(SESSION_KEY);
+    let isNewSession = false;
+
+    if (!sessionId) {
+        sessionId = crypto.randomUUID();
+        sessionStorage.setItem(SESSION_KEY, sessionId);
+        isNewSession = true;
+    }
+
+    // استخراج UTMs من الرابط
     const urlParams = new URLSearchParams(window.location.search);
-    const identifiedUid = urlParams.get('identified');
-    if (identifiedUid) {
-      this.uid = identifiedUid; // استبدال البصمة المؤقتة بالبصمة المعروفة
-      localStorage.setItem('dmr_uid', identifiedUid);
-      urlParams.delete('identified');
-      const cleanUrl = urlParams.toString() ? `${window.location.pathname}?${urlParams.toString()}` : window.location.pathname;
-      window.history.replaceState({}, document.title, cleanUrl);
+    const getParam = (key) => urlParams.get(key) || null;
+
+    // إذا كان الزائر قادماً من حملة إيميل بارد (رابط /api/p/[uid])
+    if (getParam('identified')) {
+        uid = getParam('identified');
+        localStorage.setItem(UID_KEY, uid);
     }
 
-    // 3. توليد معرف الجلسة (Session ID)
-    this.sessionId = 'sess_' + crypto.randomUUID().replace(/-/g, '');
-    sessionStorage.setItem('dmr_session', this.sessionId);
-
-    // 4. استخراج UTMs
-    ['utm_source', 'utm_campaign', 'utm_medium', 'utm_term', 'utm_content'].forEach(param => {
-      const val = urlParams.get(param);
-      if (val) this.utms[param] = val;
-    });
-
-    // 5. بدء التتبع
-    this.sessionStartTime = Date.now();
-    this.sendData('session_start', {
-      entry_page: window.location.pathname,
-      utm_source: this.utms.utm_source || null,
-      utm_campaign: this.utms.utm_campaign || null
-    });
-
-    this.setupHeartbeat();
-    this.setupScrollTracking();
-    this.setupExitTracking();
-  },
-
-  getDurationSec() {
-    return Math.floor((Date.now() - this.sessionStartTime) / 1000);
-  },
-
-  sendData(type, extraData = {}) {
-    const payload = {
-      type: type,
-      uid: this.uid, // إرسال الـ UID كمعرف أساسي
-      session_id: this.sessionId,
-      ...extraData
+    const trackingData = {
+        uid: uid,
+        session_id: sessionId,
+        source: getParam('source') || document.referrer || 'direct',
+        source_type: getParam('source_type') || 'organic',
+        utm_source: getParam('utm_source'),
+        utm_campaign: getParam('utm_campaign'),
+        landing_page: window.location.pathname,
+        fingerprint_id: navigator.userAgent, // مبسط لتجنب مكتبات خارجية
+        device_type: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : (/Tablet|iPad/i.test(navigator.userAgent) ? 'tablet' : 'desktop'),
+        browser: detectBrowser(),
+        operating_system: detectOS()
     };
 
-    if (type === 'exit') {
-      const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-      navigator.sendBeacon(this.API_ENDPOINT, blob);
-    } else {
-      fetch(this.API_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }).catch(err => console.error('Tracking Error:', err));
+    function detectBrowser() {
+        if (navigator.userAgent.includes("Firefox")) return "Firefox";
+        if (navigator.userAgent.includes("Edg")) return "Edge";
+        if (navigator.userAgent.includes("Chrome")) return "Chrome";
+        if (navigator.userAgent.includes("Safari")) return "Safari";
+        return "Unknown";
     }
-  },
 
-  setupHeartbeat() {
+    function detectOS() {
+        if (navigator.userAgent.includes("Windows")) return "Windows";
+        if (navigator.userAgent.includes("Mac OS")) return "MacOS";
+        if (navigator.userAgent.includes("Linux")) return "Linux";
+        if (navigator.userAgent.includes("Android")) return "Android";
+        if (navigator.userAgent.includes("iOS") || navigator.userAgent.includes("iPhone")) return "iOS";
+        return "Unknown";
+    }
+
+    function sendTrackRequest(eventType, payload = {}) {
+        const body = { ...trackingData, ...payload, event_type: eventType };
+        fetch(API_TRACK, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            keepalive: true // يضمن الإرسال حتى عند إغلاق الصفحة
+        }).catch(err => console.error('Tracking error:', err));
+    }
+
+    // 1) إرسال session_start
+    if (isNewSession) {
+        sendTrackRequest('session_start');
+    }
+
+    // 2) نبضات القلب (Heartbeat) - كل 30 ثانية
     setInterval(() => {
-      this.sendData('heartbeat', { duration_sec: this.getDurationSec() });
-    }, this.HEARTBEAT_INTERVAL);
-  },
+        sendTrackRequest('heartbeat');
+    }, 30000);
 
-  setupScrollTracking() {
-    window.addEventListener('scroll', () => {
-      const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
-      if (scrollHeight <= 0) return;
-      const currentScroll = Math.round((window.scrollY / scrollHeight) * 100);
-      
-      if (currentScroll > this.maxScroll) this.maxScroll = currentScroll;
+    // 3) تتبع التمرير (Scroll) ذكي - لا نرسل كل بكسل، فقط عند النسب المحددة
+    const scrollMilestones = [25, 50, 75, 100];
+    let reachedMilestones = new Set();
 
-      this.scrollThresholds.forEach(threshold => {
-        if (this.maxScroll >= threshold && !this.reportedScrolls.has(threshold)) {
-          this.reportedScrolls.add(threshold);
-          this.sendData('scroll', { max_scroll_pct: this.maxScroll });
-        }
-      });
-    }, { passive: true });
-  },
+    function checkScrollDepth() {
+        const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+        if (scrollHeight <= 0) return;
+        const currentScroll = Math.round((window.scrollY / scrollHeight) * 100);
 
-  setupExitTracking() {
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') {
-        this.sendData('exit', {
-          duration_sec: this.getDurationSec(),
-          max_scroll_pct: this.maxScroll,
-          exit_page: window.location.pathname
+        scrollMilestones.forEach(milestone => {
+            if (currentScroll >= milestone && !reachedMilestones.has(milestone)) {
+                reachedMilestones.add(milestone);
+                sendTrackRequest('scroll', { scroll_pct: milestone });
+            }
         });
-      }
-    });
-  }
-};
+    }
 
-document.addEventListener('DOMContentLoaded', () => TrackingEngine.init());
+    let scrollTimeout;
+    window.addEventListener('scroll', () => {
+        if (scrollTimeout) clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(checkScrollDepth, 200); // Debounce 200ms
+    }, { passive: true });
+
+    // 4) حدث الخروج (Exit) - عند إغلاق التبويب أو الانتقال لصفحة أخرى
+    let startTime = Date.now();
+
+    window.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            const durationSec = Math.round((Date.now() - startTime) / 1000);
+            const maxScroll = reachedMilestones.size > 0 ? Math.max(...reachedMilestones) : 0;
+            
+            // استخدام sendBeacon لضمان الإرسال قبل موت الصفحة
+            const body = new Blob([JSON.stringify({
+                ...trackingData,
+                event_type: 'exit',
+                duration_sec: durationSec,
+                scroll_pct: maxScroll,
+                exit_page: window.location.pathname
+            })], { type: 'application/json' });
+
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon(API_TRACK, body);
+            } else {
+                // Fallback if sendBeacon is not supported
+                sendTrackRequest('exit', { duration_sec: durationSec, scroll_pct: maxScroll, exit_page: window.location.pathname });
+            }
+        }
+    });
+
+    // تصدير المتغيرات لملف main.js
+    window.DentalTracking = { uid, sessionId, sendTrackRequest };
+
+})();

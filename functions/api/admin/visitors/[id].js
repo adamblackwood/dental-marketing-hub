@@ -1,54 +1,33 @@
 // functions/api/admin/visitors/[id].js
+// PATCH تعديل + DELETE حذف
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../../config.js';
+import { SUPABASE_URL, SUPABASE_SERVICE_KEY, ADMIN_PASSWORD } from '../../config.js';
 
-const supabaseHeaders = {
-  'apikey': SUPABASE_ANON_KEY,
-  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-  'Content-Type': 'application/json',
-  'Prefer': 'return=minimal'
-};
+function checkAuth(request) {
+  const cookieHeader = request.headers.get('cookie') || '';
+  return cookieHeader.includes(`admin_session=${ADMIN_PASSWORD}`);
+}
 
 export async function onRequestPatch(context) {
-  try {
-    const cookie = context.request.headers.get('Cookie') || '';
-    if (!cookie.includes('admin_session=true')) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-
-    const uid = context.params.id;
-    const body = await context.request.json();
-
-    const updateData = {};
-    if (body.identified_name !== undefined) updateData.identified_name = body.identified_name;
-    if (body.identified_email !== undefined) updateData.identified_email = body.identified_email;
-    if (body.is_hot_lead !== undefined) updateData.lead_status = body.is_hot_lead ? 'hot' : 'cold';
-
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
-      method: 'PATCH',
-      headers: supabaseHeaders,
-      body: JSON.stringify(updateData)
-    });
-
-    if (!res.ok) throw new Error('Failed to update visitor');
-    return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-  }
+  if (!checkAuth(context.request)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+  const uid = context.params.id;
+  const body = await context.request.json();
+  
+  await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
+    method: 'PATCH',
+    headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
 }
 
 export async function onRequestDelete(context) {
-  try {
-    const cookie = context.request.headers.get('Cookie') || '';
-    if (!cookie.includes('admin_session=true')) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-
-    const uid = context.params.id;
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
-      method: 'DELETE',
-      headers: supabaseHeaders
-    });
-
-    if (!res.ok) throw new Error('Failed to delete visitor');
-    return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-  }
+  if (!checkAuth(context.request)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+  const uid = context.params.id;
+  
+  await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
+    method: 'DELETE',
+    headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` }
+  });
+  return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
 }
