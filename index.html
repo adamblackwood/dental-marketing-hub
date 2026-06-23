@@ -1,42 +1,48 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dental Marketing Resource Hub</title>
-    <!-- استدعاء ملفات CSS الجديدة -->
-    <link rel="stylesheet" href="/assets/css/layout.css">
-    <link rel="stylesheet" href="/assets/css/dashboard.css"> <!-- للحفاظ على تنسيقات النماذج إن وجدت -->
-    <style>
-        /* بعض التنسيقات السريعة للصفحة الرئيسية */
-        .hero { text-align: center; padding: 100px 20px; background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); color: white; }
-        .hero h1 { font-size: 3rem; margin-bottom: 20px; }
-        .btn { display: inline-block; padding: 15px 30px; border-radius: 8px; text-decoration: none; font-weight: bold; margin: 10px; color: white; }
-        .btn-primary { background-color: #3b82f6; }
-        .btn-ghost { border: 2px solid rgba(255,255,255,0.3); }
-    </style>
+    <title>Dental Marketing Hub - Grow Your Clinic</title>
+    <link rel="stylesheet" href="/assets/css/public.css">
 </head>
 <body>
 
-    <!-- محرك القوالب سيقوم بحقن الـ Navbar هنا تلقائياً -->
+    <!-- Dynamic Header Placeholder -->
+    <div id="header-placeholder"></div>
 
-    <!-- المحتوى الرئيسي -->
-    <div id="app">
-        <section class="hero">
-            <h1>Automate & Scale Your Dental Practice</h1>
-            <p>Discover how top dental clinics use GoHighLevel to automate patient acquisition.</p>
-            <a href="#get-resource" class="btn btn-primary">Download Free Guide</a>
-            <a href="/api/go" id="ghlAffiliateBtn" class="btn btn-ghost">Start Free Trial on GoHighLevel</a>
-        </section>
+    <section class="hero">
+        <h1>Scale Your Dental Clinic with Predictable Marketing</h1>
+        <p>Learn the exact systems top dental clinics use to attract high-value patients, automate follow-ups, and double their revenue without spending a fortune on ads.</p>
         
-        <!-- بقية محتوى الصفحة (النماذج وغيرها) يبقى هنا... -->
-    </div>
+        <!-- Download Button (Tracked via main.js) -->
+        <button class="btn btn-primary download-btn" data-file="dental-marketing-pdf">
+            Download Free Growth Guide PDF
+        </button>
+        
+        <div style="margin-top: 1rem;">
+            <!-- Affiliate Link (Tracked via main.js) -->
+            <a href="/api/go" class="btn btn-outline" style="margin-top: 1rem;">
+                Discover the Software We Recommend
+            </a>
+        </div>
+    </section>
 
-    <!-- محرك القوالب سيقوم بحقن الـ Footer هنا تلقائياً -->
+    <section class="container">
+        <div class="article-content" style="text-align: center;">
+            <h2>Why Partner With Us?</h2>
+            <p>We specialize in helping dental clinic owners navigate the complex world of digital marketing. From patient retention systems to automated appointment reminders, we show you the tools and strategies that actually work.</p>
+            <p><a href="/article.html">Read our latest article on patient acquisition →</a></p>
+        </div>
+    </section>
 
-    <!-- استدعاء الملفات بالترتيب الصحيح -->
+    <!-- Dynamic Footer Placeholder -->
+    <div id="footer-placeholder"></div>
+
+    <!-- Tracking Engines & Layout -->
     <script src="/assets/js/tracking.js"></script>
-    <!-- استخدام type="module" لأننا نستخدم import في main.js -->
-    <script type="module" src="/assets/js/main.js"></script>
+    <script src="/assets/js/layout.js"></script>
+    <script src="/assets/js/main.js"></script>
 </body>
 </html>

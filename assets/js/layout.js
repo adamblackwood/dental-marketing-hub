@@ -1,47 +1,44 @@
 // assets/js/layout.js
-// محرك القوالب المركزي: يحقن الـ Navbar والـ Footer تلقائياً، ويحدد الرابط النشط
-
-export function initLayout() {
-    const appContainer = document.getElementById('app');
-    if (!appContainer) return;
-
-    // 1. إدراج الـ Navbar في الأعلى
-    const nav = document.createElement('nav');
-    nav.className = 'main-nav';
+function injectLayout() {
     const currentPath = window.location.pathname;
+
+    // === Header HTML ===
+    const headerHTML = `
+    <nav>
+        <a href="/" class="logo">DentalHub</a>
+        <div class="nav-links">
+            <a href="/" data-path="/">Home</a>
+            <a href="/article.html" data-path="/article.html">Strategies</a>
+            <a href="/about.html" data-path="/about.html">About</a>
+            <a href="/privacy-policy.html" data-path="/privacy-policy.html">Privacy</a>
+            <a href="/api/go" class="btn-outline" style="padding: 0.5rem 1rem; border-width: 1px; margin-left: 1rem;">Try GHL</a>
+        </div>
+    </nav>`;
+
+    // === Footer HTML ===
+    const footerHTML = `
+    <footer>
+        &copy; 2024 Dental Marketing Hub. All rights reserved.<br>
+        <a href="/about.html" style="color: var(--text-muted); text-decoration: none;">About Us</a> | 
+        <a href="/privacy-policy.html" style="color: var(--text-muted); text-decoration: none;">Privacy Policy</a><br>
+        <span style="font-size: 0.8rem; color: #94a3b8;">Empowering Dental Clinics with Smart Automation.</span>
+    </footer>`;
+
+    // Inject HTML
+    const headerPlaceholder = document.getElementById('header-placeholder');
+    const footerPlaceholder = document.getElementById('footer-placeholder');
     
-    nav.innerHTML = `
-        <div class="nav-container">
-            <a href="/" class="nav-logo">DentalHub<span>Track</span></a>
-            <ul class="nav-links">
-                <li><a href="/" class="${currentPath === '/' ? 'active' : ''}">Home</a></li>
-                <li><a href="/about.html" class="${currentPath === '/about.html' ? 'active' : ''}">About Us</a></li>
-                <li><a href="/privacy.html" class="${currentPath === '/privacy.html' ? 'active' : ''}">Privacy Policy</a></li>
-            </ul>
-            <button class="nav-toggle" id="navToggle">☰</button>
-        </div>
-    `;
-    document.body.prepend(nav);
+    if (headerPlaceholder) headerPlaceholder.innerHTML = headerHTML;
+    if (footerPlaceholder) footerPlaceholder.innerHTML = footerHTML;
 
-    // 2. إدراج الـ Footer في الأسفل
-    const footer = document.createElement('footer');
-    footer.className = 'main-footer';
-    footer.innerHTML = `
-        <div class="container">
-            <p>&copy; ${new Date().getFullYear()} Dental Marketing Resource Hub. All rights reserved.</p>
-            <div class="footer-links">
-                <a href="/about.html">About</a> | <a href="/privacy.html">Privacy</a>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(footer);
-
-    // 3. قائمة الموبايل (Toggle)
-    const toggleBtn = document.getElementById('navToggle');
-    const navLinks = document.querySelector('.nav-links');
-    if (toggleBtn) {
-        toggleBtn.addEventListener('click', () => {
-            navLinks.classList.toggle('active');
-        });
-    }
+    // Highlight Active Link
+    document.querySelectorAll('.nav-links a[data-path]').forEach(link => {
+        if (link.getAttribute('data-path') === currentPath) {
+            link.style.color = '#2563eb'; // Primary color
+            link.style.fontWeight = 'bold';
+        }
+    });
 }
+
+// Run injection as early as possible
+document.addEventListener('DOMContentLoaded', injectLayout);
