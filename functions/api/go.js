@@ -12,45 +12,47 @@ export async function onRequestGet(context) {
       return new Response('Missing UID', { status: 400 });
     }
 
-    const headers = {
+    const supabaseHeaders = {
       'apikey': SUPABASE_ANON_KEY,
       'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
       'Content-Type': 'application/json'
     };
-    const now = new Date().toISOString();
 
-    // 1. Insert Event
-    context.waitUntil(
-      fetch(`${SUPABASE_URL}/rest/v1/events`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          event_uuid: crypto.randomUUID(),
-          uid: uid,
-          session_id: sid,
-          event_type: 'affiliate_click',
-          created_at: now
-        })
-      })
-    );
-
-    // 2. Update Lead Score (+50) -> THIS WAS MISSING!
+    // Use waitUntil to ensure database updates complete even during redirect
     context.waitUntil(
       (async () => {
-        const profRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=lead_score,total_conversions`, { headers });
+        const now = new Date().toISOString();
+
+        // 1. Insert Affiliate Click Event
+        await fetch(`${SUPABASE_URL}/rest/v1/events`, {
+          method: 'POST',
+          headers: supabaseHeaders,
+          body: JSON.stringify({
+            event_uuid: crypto.randomUUID(),
+            uid: uid,
+            session_id: sid,
+            event_type: 'affiliate_click',
+            created_at: now
+          })
+        });
+
+        // 2. Update Lead Score (+50) and Conversions
+        const profRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=lead_score,total_conversions`, {
+          headers: supabaseHeaders
+        });
         const profData = await profRes.json();
+        
         if (profData.length > 0) {
           const newScore = profData[0].lead_score + 50;
           const newConversions = profData[0].total_conversions + 1;
-          const newStatus = newScore >= 70 ? 'hot' : (newScore >= 30 ? 'warm' : 'cold');
           
           await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
             method: 'PATCH',
-            headers,
+            headers: supabaseHeaders,
             body: JSON.stringify({
               lead_score: newScore,
               total_conversions: newConversions,
-              lead_status: newStatus,
+              lead_status: 'hot', // Direct to Hot
               last_seen_at: now
             })
           });

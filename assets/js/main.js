@@ -3,17 +3,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const { uid, sessionId } = window.TrackingState || { uid: 'unknown', sessionId: 'unknown' };
 
     // 1. Event Delegation for Affiliate Links & Download Buttons
-    // This ensures clicks work even if the header is injected dynamically.
     document.addEventListener('click', async (e) => {
         const target = e.target;
         
-        // Affiliate Links (Checks if clicked element or its parent is the link)
+        // Affiliate Links
         const affLink = target.closest('a[href*="/api/go"]');
         if (affLink) {
             e.preventDefault();
             const url = new URL(affLink.href, window.location.origin);
             url.searchParams.set('uid', uid);
             url.searchParams.set('sid', sessionId);
+            
+            // Redirect to the /api/go endpoint which handles logging AND redirect
             window.location.href = url.toString();
             return;
         }
@@ -41,11 +42,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 2. Lead Forms
-    // Using delegation for forms as well, in case they are injected
+    // 2. Lead Forms (Using Event Delegation)
     document.addEventListener('submit', async (e) => {
         const form = e.target;
-        if (!form.matches('#smart-lead-form')) return; // Ignore other forms
+        if (!form.matches('#smart-lead-form')) return;
         
         e.preventDefault();
         const formData = new FormData(form);
