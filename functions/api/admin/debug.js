@@ -1,48 +1,62 @@
 // functions/api/admin/debug.js
-// واجهة فحص النظام الشاملة: تجلب البيانات من الجداول السبعة دفعة واحدة
+// GET /api/admin/debug?uid=XXX — Full technical dump including sessions.
 
-import { SUPABASE_URL, SUPABASE_SERVICE_KEY, ADMIN_PASSWORD } from '../config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
+import { isAuthenticated, unauthorizedResponse } from "./auth.js";
 
-function checkAuth(request) {
-  const cookieHeader = request.headers.get('cookie') || '';
-  return cookieHeader.includes(`admin_session=${ADMIN_PASSWORD}`);
+const SB_HEADERS = {
+    "apikey":        SUPABASE_ANON_KEY,
+    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+    "Content-Type":  "application/json"
+};
+
+async function sbGet(path) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: SB_HEADERS });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
 }
 
 export async function onRequestGet(context) {
-  if (!checkAuth(context.request)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-  }
+    if (!isAuthenticated(context.request)) return unauthorizedResponse();
 
-  const url = new URL(context.request.url);
-  const uid = url.searchParams.get('uid');
-  if (!uid) return new Response(JSON.stringify({ error: 'Missing uid' }), { status: 400 });
+    const url = new URL(context.request.url);
+    const uid = url.searchParams.get("uid");
+    if (!uid) {
+        return new Response(JSON.stringify({ error: "uid required" }), {
+            status:  400,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
 
-  const headers = { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` };
+    const u = encodeURIComponent(uid);
+    try {
+        const [profileArr, acquisitions, visits, journeys, sessions, events, emailActivities] = await Promise.all([
+            sbGet(`visitor_profiles?uid=eq.${u}&select=*`),
+            sbGet(`acquisitions?uid=eq.${u}&select=*&order=touch_order.asc`),
+            sbGet(`visits?uid=eq.${u}&select=*&order=started_at.desc`),
+            sbGet(`visit_journeys?uid=eq.${u}&select=*`),
+            sbGet(`sessions?uid=eq.${u}&select=*&order=started_at.desc`),
+            sbGet(`events?uid=eq.${u}&select=*&order=created_at.desc`),
+            sbGet(`email_activities?uid=eq.${u}&select=*&order=created_at.desc`)
+        ]);
 
-  try {
-    const [profileRes, acqRes, visitsRes, sessionsRes, journeysRes, emailRes, eventsRes] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=*`, { headers }),
-      fetch(`${SUPABASE_URL}/rest/v1/acquisitions?uid=eq.${uid}&select=*`, { headers }),
-      fetch(`${SUPABASE_URL}/rest/v1/visits?uid=eq.${uid}&select=*&order=started_at.desc.nullslast`, { headers }),
-      fetch(`${SUPABASE_URL}/rest/v1/sessions?uid=eq.${uid}&select=*&order=started_at.desc.nullslast`, { headers }),
-      fetch(`${SUPABASE_URL}/rest/v1/visit_journeys?uid=eq.${uid}&select=*`, { headers }), // إضافة الرحلات
-      fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&select=*`, { headers }),
-      fetch(`${SUPABASE_URL}/rest/v1/events?uid=eq.${uid}&select=*&order=created_at.desc.nullslast`, { headers })
-    ]);
-
-    const debugData = {
-      profile: (await profileRes.json())[0] || null,
-      acquisitions: await acqRes.json() || [],
-      visits: await visitsRes.json() || [],
-      sessions: await sessionsRes.json() || [],
-      journeys: await journeysRes.json() || [], // الرحلات
-      email_activities: await emailRes.json() || [],
-      events: await eventsRes.json() || []
-    };
-
-    return new Response(JSON.stringify(debugData), { status: 200, headers: { 'Content-Type': 'application/json' } });
-
-  } catch (err) {
-    return new Response(JSON.stringify({ error: 'Debug fetch failed', details: err.message }), { status: 500 });
-  }
+        return new Response(JSON.stringify({
+            visitor_profile:  profileArr[0] || null,
+            acquisitions,
+            visits,
+            visit_journeys:   journeys,
+            sessions,
+            events,
+            email_activities: emailActivities
+        }), {
+            status:  200,
+            headers: { "Content-Type": "application/json" }
+        });
+    } catch (err) {
+        return new Response(JSON.stringify({ error: String(err && err.message || err) }), {
+            status:  500,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
 }

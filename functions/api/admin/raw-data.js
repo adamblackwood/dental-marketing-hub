@@ -1,71 +1,142 @@
 // functions/api/admin/raw-data.js
-// واجهة جلب البيانات الخام مع Pagination و PATCH و DELETE (تدعم 7 جداول الآن)
+// GET    /api/admin/raw-data?table=T&page=N        — Paginated list (limit 20)
+// PATCH  /api/admin/raw-data?table=T&id=ROW_ID     — Update a row
+// DELETE /api/admin/raw-data?table=T&id=ROW_ID     — Delete a row
 
-import { SUPABASE_URL, SUPABASE_SERVICE_KEY, ADMIN_PASSWORD } from '../config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
+import { isAuthenticated, unauthorizedResponse } from "./auth.js";
 
-const TABLE_CONFIG = {
-  visitor_profiles: { pk: 'uid' },
-  acquisitions: { pk: 'acquisition_id' },
-  visits: { pk: 'visit_id' },
-  sessions: { pk: 'session_id' },
-  visit_journeys: { pk: 'visit_id' }, // الجدول السابع الجديد
-  email_activities: { pk: 'email_activity_id' },
-  events: { pk: 'event_id' }
+const SB_HEADERS = {
+    "apikey":        SUPABASE_ANON_KEY,
+    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+    "Content-Type":  "application/json"
 };
 
-function checkAuth(request) {
-  const cookieHeader = request.headers.get('cookie') || '';
-  return cookieHeader.includes(`admin_session=${ADMIN_PASSWORD}`);
+const PAGE_SIZE = 20;
+
+// Whitelist of allowed tables and their primary keys.
+const TABLES = {
+    visitor_profiles: { pk: "uid",               orderBy: "last_seen_at.desc" },
+    acquisitions:     { pk: "acquisition_id",    orderBy: "first_visit_at.desc" },
+    visits:           { pk: "visit_id",          orderBy: "started_at.desc" },
+    sessions:         { pk: "session_id",        orderBy: "started_at.desc" },
+    visit_journeys:   { pk: "visit_id",          orderBy: null },
+    events:           { pk: "event_id",          orderBy: "created_at.desc" },
+    email_activities: { pk: "email_activity_id", orderBy: "created_at.desc" }
+};
+
+function badRequest(msg, status = 400) {
+    return new Response(JSON.stringify({ error: msg }), {
+        status,
+        headers: { "Content-Type": "application/json" }
+    });
 }
 
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+function validateTable(table) {
+    return TABLES[table] || null;
 }
 
 export async function onRequestGet(context) {
-  if (!checkAuth(context.request)) return jsonResponse({ error: 'Unauthorized' }, 401);
-  
-  const url = new URL(context.request.url);
-  const table = url.searchParams.get('table');
-  const page = parseInt(url.searchParams.get('page') || '1', 10);
-  const limit = 20;
-  const offset = (page - 1) * limit;
+    if (!isAuthenticated(context.request)) return unauthorizedResponse();
 
-  if (!TABLE_CONFIG[table]) return jsonResponse({ error: 'Invalid table' }, 400);
-  const pk = TABLE_CONFIG[table].pk;
+    const url   = new URL(context.request.url);
+    const table = url.searchParams.get("table");
+    const page  = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
+    const meta  = validateTable(table);
+    if (!meta) return badRequest("invalid table");
 
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*&order=${pk}.desc.nullslast&offset=${offset}&limit=${limit}`, {
-    headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'Range-Unit': 'items', 'Range': `${offset}-${offset + limit - 1}`, 'Prefer': 'count=exact' }
-  });
-  
-  const data = await res.json();
-  const contentRange = res.headers.get('content-range');
-  let totalItems = 0;
-  if (contentRange) { totalItems = parseInt(contentRange.split('/')[1], 10) || 0; }
+    const from = (page - 1) * PAGE_SIZE;
+    const to   = from + PAGE_SIZE - 1;
 
-  return jsonResponse({ data, pagination: { totalItems, currentPage: page, totalPages: Math.ceil(totalItems / limit) } });
+    const params = ["select=*"];
+    if (meta.orderBy) params.push(`order=${meta.orderBy}`);
+    const path = `${table}?${params.join("&")}`;
+
+    try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+            headers: {
+              ...SB_HEADERS,
+                "Prefer": "count=exact",
+                "Range":        `${from}-${to}`,
+                "Range-Unit":   "items"
+            }
+        });
+        if (!res.ok) return badRequest("supabase_error", 500);
+        const data  = await res.json();
+        const range = res.headers.get("Content-Range") || res.headers.get("content-range") || "";
+        const total = range.split("/")[1];
+        const totalItems = total ? Number(total) : (Array.isArray(data) ? data.length : 0);
+        const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+
+        return new Response(JSON.stringify({
+            data,
+            pagination: { totalItems, currentPage: page, totalPages, pageSize: PAGE_SIZE }
+        }), {
+            status:  200,
+            headers: { "Content-Type": "application/json" }
+        });
+    } catch (err) {
+        return badRequest(String(err && err.message || err), 500);
+    }
 }
 
 export async function onRequestPatch(context) {
-  if (!checkAuth(context.request)) return jsonResponse({ error: 'Unauthorized' }, 401);
-  const url = new URL(context.request.url);
-  const table = url.searchParams.get('table');
-  const id = url.searchParams.get('id');
-  if (!TABLE_CONFIG[table] || !id) return jsonResponse({ error: 'Invalid params' }, 400);
-  const pk = TABLE_CONFIG[table].pk;
-  const body = await context.request.json();
-  delete body[pk]; // منع تعديل المفتاح الرئيسي
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${pk}=eq.${id}`, { method: 'PATCH', headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' }, body: JSON.stringify(body) });
-  return jsonResponse({ success: true, data: await res.json() });
+    if (!isAuthenticated(context.request)) return unauthorizedResponse();
+
+    const url   = new URL(context.request.url);
+    const table = url.searchParams.get("table");
+    const id    = url.searchParams.get("id");
+    const meta  = validateTable(table);
+    if (!meta) return badRequest("invalid table");
+    if (!id)   return badRequest("id required");
+
+    let body;
+    try { body = await context.request.json(); }
+    catch { return badRequest("invalid json body"); }
+
+    // Strip PK from body.
+    if (body && typeof body === "object") delete body[meta.pk];
+
+    try {
+        const filter = `${meta.pk}=eq.${encodeURIComponent(id)}`;
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
+            method:  "PATCH",
+            headers: {...SB_HEADERS, "Prefer": "return=representation" },
+            body:    JSON.stringify(body)
+        });
+        if (!res.ok) return badRequest("supabase_error", 500);
+        const data = await res.json();
+        return new Response(JSON.stringify({ success: true, data }), {
+            status:  200,
+            headers: { "Content-Type": "application/json" }
+        });
+    } catch (err) {
+        return badRequest(String(err && err.message || err), 500);
+    }
 }
 
 export async function onRequestDelete(context) {
-  if (!checkAuth(context.request)) return jsonResponse({ error: 'Unauthorized' }, 401);
-  const url = new URL(context.request.url);
-  const table = url.searchParams.get('table');
-  const id = url.searchParams.get('id');
-  if (!TABLE_CONFIG[table] || !id) return jsonResponse({ error: 'Invalid params' }, 400);
-  const pk = TABLE_CONFIG[table].pk;
-  await fetch(`${SUPABASE_URL}/rest/v1/${table}?${pk}=eq.${id}`, { method: 'DELETE', headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` } });
-  return jsonResponse({ success: true });
+    if (!isAuthenticated(context.request)) return unauthorizedResponse();
+
+    const url   = new URL(context.request.url);
+    const table = url.searchParams.get("table");
+    const id    = url.searchParams.get("id");
+    const meta  = validateTable(table);
+    if (!meta) return badRequest("invalid table");
+    if (!id)   return badRequest("id required");
+
+    try {
+        const filter = `${meta.pk}=eq.${encodeURIComponent(id)}`;
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
+            method:  "DELETE",
+            headers: {...SB_HEADERS, "Prefer": "return=minimal" }
+        });
+        if (!res.ok) return badRequest("supabase_error", 500);
+        return new Response(JSON.stringify({ success: true }), {
+            status:  200,
+            headers: { "Content-Type": "application/json" }
+        });
+    } catch (err) {
+        return badRequest(String(err && err.message || err), 500);
+    }
 }

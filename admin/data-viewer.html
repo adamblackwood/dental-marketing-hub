@@ -4,61 +4,201 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Raw Data Viewer - Dental Hub</title>
+    <meta name="robots" content="noindex, nofollow">
+    <title>Raw Data Viewer — DMRH Adminitle>
     <link rel="stylesheet" href="/assets/css/dashboard.css">
 </head>
-<body id="dataViewerPage">
+<body>
 
-    <div class="header">
-        <h1>Raw Data Viewer</h1>
-        <div class="header-actions">
-            <a href="/admin/dashboard.html" class="btn btn-ghost btn-sm">← Back to Dashboard</a>
-            <button id="logoutBtnData" class="btn btn-danger btn-sm">Logout</button>
+    <nav class="top-nav">
+        <div class="logo">🦷 DMRH Admin</div>
+        <div class="nav-links">
+            <a href="/admin/dashboard.html">Dashboard</a>
+            <a href="/admin/data-viewer.html" class="active">Raw Data Viewer</a>
+            <button type="button" class="btn-ghost" id="logout-btn">Logout</button>
         </div>
-    </div>
+    </nav>
 
-    <div class="data-viewer-layout">
-        <div class="sidebar">
-            <button class="sidebar-btn active" data-table="visitor_profiles">Visitor Profiles</button>
-            <button class="sidebar-btn" data-table="acquisitions">Acquisitions</button>
-            <button class="sidebar-btn" data-table="visits">Visits</button>
-            <button class="sidebar-btn" data-table="sessions">Sessions</button>
-            <button class="sidebar-btn" data-table="email_activities">Email Activities</button>
-            <button class="sidebar-btn" data-table="events">Events</button>
-        </div>
+    <main class="shell">
+        <section class="section">
+            <h2 class="section-title">Raw Data Viewer</h2>
 
-        <div class="main-content">
-            <div class="pagination">
-                <button id="prevBtn" class="btn btn-ghost btn-sm" disabled>← Previous</button>
-                <span id="pageInfo">Page 1 of 1</span>
-                <button id="nextBtn" class="btn btn-ghost btn-sm">Next →</button>
+            <div class="tabs" id="rd-tabs">
+                <button class="tab active" data-table="visitor_profiles">visitor_profiles</button>
+                <button class="tab"        data-table="acquisitions">acquisitions</button>
+                <button class="tab"        data-table="visits">visits</button>
+                <button class="tab"        data-table="sessions">sessions</button>
+                <button class="tab"        data-table="visit_journeys">visit_journeys</button>
+                <button class="tab"        data-table="events">events</button>
+                <button class="tab"        data-table="email_activities">email_activities</button>
             </div>
-            <div class="table-container">
-                <table class="data-table">
-                    <thead id="tableHead"></thead>
-                    <tbody id="tableBody"></tbody>
-                </table>
-            </div>
-        </div>
-    </div>
 
-    <!-- Edit Modal -->
-    <div class="modal-overlay" id="editModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="modalTitle">Edit Record</h2>
-                <button class="modal-close" id="closeEditModal">&times;</button>
+            <div class="table-wrap">
+                <div class="table-scroll">
+                    <table class="data-table" id="rd-table">
+                        <thead id="rd-thead">head>
+                        <tbody id="rd-tbody">
+                            <tr><td class="loading">Loading...d>r>
+                        body>
+                    able>
+                </div>
+                <div class="pagination">
+                    <div class="info" id="rd-info">—</div>
+                    <div class="controls">
+                        <button class="btn-secondary btn-small" id="rd-prev">← Prev</button>
+                        <button class="btn-secondary btn-small" id="rd-next">Next →</button>
+                    </div>
+                </div>
             </div>
-            <form id="editForm">
-                <div id="formFields"></div>
-                <input type="hidden" id="editRecordId">
-                <input type="hidden" id="editTableName">
-                <input type="hidden" id="editPkName">
-                <button type="submit" class="btn btn-success" style="width: 100%; margin-top: 1rem; background-color: var(--success);">Save Changes</button>
-            </form>
-        </div>
-    </div>
+        </section>
+    </main>
 
-    <script src="/assets/js/dashboard.js"></script>
+    <script>
+    (function () {
+        "use strict";
+
+        const STATE = { table: "visitor_profiles", page: 1, totalPages: 1, pks: {} };
+
+        // PK map mirrors the server whitelist.
+        const PK_MAP = {
+            visitor_profiles: "uid",
+            acquisitions:     "acquisition_id",
+            visits:           "visit_id",
+            sessions:         "session_id",
+            visit_journeys:   "visit_id",
+            events:           "event_id",
+            email_activities: "email_activity_id"
+        };
+
+        function el(id) { return document.getElementById(id); }
+        function escapeHtml(s) {
+            if (s === null || s === undefined) return "";
+            return String(s)
+                .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+        }
+        function renderCell(v) {
+            if (v === null || v === undefined) return "—";
+            if (typeof v === "object") return `<code>${escapeHtml(JSON.stringify(v))}</code>`;
+            if (typeof v === "boolean") return v ? "✓" : "✗";
+            const s = String(v);
+            return s.length > 80 ? escapeHtml(s.slice(0, 80)) + "…" : escapeHtml(s);
+        }
+
+        async function ensureAuth() {
+            try {
+                const res = await fetch("/api/admin/auth", { credentials: "same-origin" });
+                if (res.status === 401) { window.location.href = "/admin/login.html"; return false; }
+                return true;
+            } catch (_) { window.location.href = "/admin/login.html"; return false; }
+        }
+
+        async function loadPage() {
+            el("rd-tbody").innerHTML = `<tr><td class="loading">Loading...d>r>`;
+            el("rd-thead").innerHTML = "";
+            try {
+                const res = await fetch(
+                    `/api/admin/raw-data?table=${encodeURIComponent(STATE.table)}&page=${STATE.page}`,
+                    { credentials: "same-origin" }
+                );
+                if (res.status === 401) { window.location.href = "/admin/login.html"; return; }
+                if (!res.ok) {
+                    el("rd-tbody").innerHTML = `<tr><td class="empty-state">Failed to load.d>r>`;
+                    return;
+                }
+                const payload = await res.json();
+                const rows    = Array.isArray(payload.data) ? payload.data : [];
+                const pg      = payload.pagination || { totalItems: rows.length, currentPage: 1, totalPages: 1 };
+                STATE.totalPages = pg.totalPages || 1;
+
+                if (rows.length === 0) {
+                    el("rd-tbody").innerHTML = `<tr><td class="empty-state">No rows.d>r>`;
+                    el("rd-info").textContent = `0 items`;
+                    el("rd-prev").disabled = true;
+                    el("rd-next").disabled = true;
+                    return;
+                }
+
+                // Build dynamic headers from first row's keys + Actions column.
+                const keys = Object.keys(rows[0]);
+                el("rd-thead").innerHTML =
+                    `<tr>${keys.map(k => `<th>${escapeHtml(k)}h>`).join("")}<th>Actionsh>r>`;
+
+                const pk = PK_MAP[STATE.table];
+                el("rd-tbody").innerHTML = rows.map(row => {
+                    const idVal = row[pk];
+                    const cells = keys.map(k => `<td>${renderCell(row[k])}d>`).join("");
+                    return `
+                        <tr>
+                            ${cells}
+                            <td class="cell-actions">
+                                <button class="btn-danger btn-small btn-rd-delete" data-id="${escapeHtml(idVal)}">Delete</button>
+                            d>
+                        r>`;
+                }).join("");
+
+                el("rd-info").textContent = `Page ${pg.currentPage} of ${pg.totalPages} · ${pg.totalItems} total`;
+                el("rd-prev").disabled = STATE.page <= 1;
+                el("rd-next").disabled = STATE.page >= STATE.totalPages;
+            } catch (_) {
+                el("rd-tbody").innerHTML = `<tr><td class="empty-state">Network error.d>r>`;
+            }
+        }
+
+        function bindTabs() {
+            el("rd-tabs").addEventListener("click", function (e) {
+                const btn = e.target.closest(".tab");
+                if (!btn) return;
+                document.querySelectorAll("#rd-tabs .tab").forEach(t => t.classList.remove("active"));
+                btn.classList.add("active");
+                STATE.table = btn.dataset.table;
+                STATE.page  = 1;
+                loadPage();
+            });
+        }
+
+        function bindPagination() {
+            el("rd-prev").addEventListener("click", () => {
+                if (STATE.page > 1) { STATE.page -= 1; loadPage(); }
+            });
+            el("rd-next").addEventListener("click", () => {
+                if (STATE.page < STATE.totalPages) { STATE.page += 1; loadPage(); }
+            });
+        }
+
+        function bindRowActions() {
+            el("rd-tbody").addEventListener("click", async function (e) {
+                const btn = e.target.closest(".btn-rd-delete");
+                if (!btn) return;
+                const id = btn.dataset.id;
+                if (!id) return;
+                if (!confirm(`Delete this row from ${STATE.table}? This cannot be undone.`)) return;
+                try {
+                    const url = `/api/admin/raw-data?table=${encodeURIComponent(STATE.table)}&id=${encodeURIComponent(id)}`;
+                    const res = await fetch(url, { method: "DELETE", credentials: "same-origin" });
+                    if (res.ok) loadPage();
+                    else        alert("Delete failed.");
+                } catch (_) { alert("Network error."); }
+            });
+        }
+
+        function bindLogout() {
+            el("logout-btn").addEventListener("click", async function () {
+                try { await fetch("/api/admin/auth", { method: "DELETE", credentials: "same-origin" }); } catch (_) {}
+                window.location.href = "/admin/login.html";
+            });
+        }
+
+        (async function boot() {
+            const ok = await ensureAuth();
+            if (!ok) return;
+            bindTabs();
+            bindPagination();
+            bindRowActions();
+            bindLogout();
+            loadPage();
+        })();
+    })();
+    </script>
 </body>
 </html>

@@ -1,260 +1,390 @@
 // functions/api/track.js
-// محرك التتبع المركزي V4.0 - يدعم قاعدة الـ 30 دقيقة، الرحلات (Journeys)، ويمنع تكدس البيانات
+// POST /api/track  — Universal ingestion endpoint.
+// Strict Zero-Bloat: navigation events PATCH, only commercial events INSERT into `events`.
 
-import { SUPABASE_URL, SUPABASE_SERVICE_KEY } from './config.js';
+import {
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY,
+    SCORE_WEIGHTS,
+    LEAD_STATUS_THRESHOLDS,
+    VISIT_INACTIVITY_MS
+} from "./config.js";
 
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+// ---------- Supabase REST helpers ----------
+const SB_HEADERS = {
+    "apikey":         SUPABASE_ANON_KEY,
+    "Authorization":  `Bearer ${SUPABASE_ANON_KEY}`,
+    "Content-Type":   "application/json"
+};
+
+async function sbGet(path) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+        method:  "GET",
+        headers: SB_HEADERS
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data) ? data : null;
 }
 
-async function sbFetch(method, table, queryParams = '', body = null) {
-  const url = `${SUPABASE_URL}/rest/v1/${table}${queryParams}`;
-  const headers = { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' };
-  const options = { method, headers };
-  if (body !== null) options.body = JSON.stringify(body);
-  const res = await fetch(url, options);
-  if (!res.ok) { console.error(`SB ${method} ${table} failed:`, await res.text()); return null; }
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
+async function sbInsert(table, body, prefer = "return=representation") {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+        method:  "POST",
+        headers: { ...SB_HEADERS, "Prefer": prefer },
+        body:    JSON.stringify(body)
+    });
+    if (!res.ok) return null;
+    const txt = await res.text();
+    try { return txt ? JSON.parse(txt) : null; } catch { return null; }
 }
 
-export async function onRequestPost(context) {
-  try {
-    const body = await context.request.json();
-    const { event_type, uid, session_id, ...data } = body;
-    if (!uid || !event_type) return jsonResponse({ error: 'Missing uid or event_type' }, 400);
-
-    switch (event_type) {
-      case 'session_start': return await handleSessionStart(uid, session_id, data);
-      case 'page_change': return await handlePageChange(uid, session_id, data);
-      case 'exit': return await handleExit(uid, session_id, data);
-      case 'heartbeat': return await handleHeartbeat(session_id);
-      case 'scroll': return await handleScroll(session_id, data);
-      case 'file_download': 
-      case 'form_submit': 
-      case 'affiliate_click': return await handleConversion(uid, session_id, event_type, data);
-      default: return jsonResponse({ error: 'Unknown event_type' }, 400);
-    }
-  } catch (err) {
-    console.error('Track error:', err);
-    return jsonResponse({ error: 'Internal Server Error' }, 500);
-  }
+async function sbUpsert(table, body, onConflict) {
+    const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`,
+        {
+            method:  "POST",
+            headers: {
+                ...SB_HEADERS,
+                "Prefer": "resolution=merge-duplicates,return=representation"
+            },
+            body: JSON.stringify(body)
+        }
+    );
+    if (!res.ok) return null;
+    const txt = await res.text();
+    try { return txt ? JSON.parse(txt) : null; } catch { return null; }
 }
 
-// =============================================
-// 1) SESSION_START (يحترم قاعدة الـ 30 دقيقة)
-// =============================================
-async function handleSessionStart(uid, session_id, data) {
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const finalSessionId = session_id || crypto.randomUUID();
+async function sbPatch(table, filter, body) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
+        method:  "PATCH",
+        headers: { ...SB_HEADERS, "Prefer": "return=representation" },
+        body:    JSON.stringify(body)
+    });
+    if (!res.ok) return null;
+    const txt = await res.text();
+    try { return txt ? JSON.parse(txt) : null; } catch { return null; }
+}
 
-  // أ. التأكد من وجود ملف الزائر
-  let profile = await sbFetch('GET', `visitor_profiles?uid=eq.${uid}&select=uid`);
-  if (!profile || profile.length === 0) {
-    await sbFetch('POST', 'visitor_profiles', '', { uid, fingerprint_id: data.fingerprint_id || null });
-  }
+// ---------- Lead-status helper ----------
+function computeLeadStatus(score) {
+    if (score >= LEAD_STATUS_THRESHOLDS.hot)  return "hot";
+    if (score >= LEAD_STATUS_THRESHOLDS.warm) return "warm";
+    return "cold";
+}
 
-  // ب. معالجة المصادر (Acquisitions)
-  let acquisition_id = null;
-  if (data.utm_campaign || data.source) {
-    const encCampaign = encodeURIComponent(data.utm_campaign || '');
-    const encSource = encodeURIComponent(data.utm_source || '');
-    const existingAcq = await sbFetch('GET', `acquisitions?uid=eq.${uid}&utm_source=eq.${encSource}&utm_campaign=eq.${encCampaign}&select=acquisition_id,touch_order`);
-    
-    if (existingAcq && existingAcq.length > 0) {
-      acquisition_id = existingAcq[0].acquisition_id;
+// ---------- Device detection ----------
+function detectDevice(ua) {
+    if (!ua) return "unknown";
+    const s = ua.toLowerCase();
+    if (/tablet|ipad/.test(s))                                  return "tablet";
+    if (/mobile|iphone|android.*mobile|phone/.test(s))          return "mobile";
+    return "desktop";
+}
+
+// ---------- Acquisition resolver (multi-touch) ----------
+async function resolveAcquisition(uid, data) {
+    const utmSource   = data.utm_source   || null;
+    const utmCampaign = data.utm_campaign || null;
+    const source      = data.source       || data.referrer || "direct";
+
+    // Lookup existing row.
+    const filterUtmSource   = utmSource   ? `utm_source=eq.${encodeURIComponent(utmSource)}`     : "utm_source=is.null";
+    const filterUtmCampaign = utmCampaign ? `utm_campaign=eq.${encodeURIComponent(utmCampaign)}` : "utm_campaign=is.null";
+    const existing = await sbGet(
+        `acquisitions?uid=eq.${encodeURIComponent(uid)}&${filterUtmSource}&${filterUtmCampaign}&select=acquisition_id,touch_order&limit=1`
+    );
+    if (existing && existing.length > 0) return existing[0].acquisition_id;
+
+    // Determine touch_order = max(existing) + 1.
+    const all = await sbGet(
+        `acquisitions?uid=eq.${encodeURIComponent(uid)}&select=touch_order&order=touch_order.desc&limit=1`
+    );
+    const nextOrder = (all && all.length > 0 ? Number(all[0].touch_order) : 0) + 1;
+
+    const inserted = await sbInsert("acquisitions", {
+        uid,
+        source,
+        utm_source:     utmSource,
+        utm_campaign:   utmCampaign,
+        touch_order:    nextOrder,
+        first_visit_at: new Date().toISOString()
+    });
+    if (inserted && inserted[0]) return inserted[0].acquisition_id;
+    return null;
+}
+
+// ---------- Active-visit finder (30-minute rule) ----------
+async function findActiveVisit(uid) {
+    const sessions = await sbGet(
+        `sessions?uid=eq.${encodeURIComponent(uid)}&select=session_id,visit_id,last_activity_at&order=last_activity_at.desc&limit=1`
+    );
+    if (!sessions || sessions.length === 0) return null;
+    const last = sessions[0];
+    const lastMs = new Date(last.last_activity_at).getTime();
+    if (Date.now() - lastMs > VISIT_INACTIVITY_MS) return null;
+    return last.visit_id;
+}
+
+// ---------- Event-type handlers ----------
+
+async function handleSessionStart(uid, sessionId, data, request) {
+    const nowIso     = new Date().toISOString();
+    const landing    = data.landing_page || "/";
+    const userAgent  = request.headers.get("User-Agent") || "";
+    const deviceType = data.device_type || detectDevice(userAgent);
+
+    // 1) Upsert visitor_profiles.
+    const existingProfile = await sbGet(
+        `visitor_profiles?uid=eq.${encodeURIComponent(uid)}&select=uid,total_visits,lead_score,lead_status`
+    );
+    if (!existingProfile || existingProfile.length === 0) {
+        await sbInsert("visitor_profiles", {
+            uid,
+            fingerprint_id: data.fingerprint_id || null,
+            is_identified:  false,
+            lead_score:     0,
+            lead_status:    "cold",
+            total_visits:   0,
+            first_seen_at:  nowIso,
+            last_seen_at:   nowIso
+        });
     } else {
-      // حساب ترتيب اللمس (touch_order)
-      const allAcq = await sbFetch('GET', `acquisitions?uid=eq.${uid}&select=acquisition_id`);
-      const touch_order = allAcq ? allAcq.length + 1 : 1;
-      
-      const newAcq = await sbFetch('POST', 'acquisitions', '', {
-        uid, source: data.source || 'direct', utm_source: data.utm_source || null, utm_campaign: data.utm_campaign || null, touch_order
-      });
-      if (newAcq) acquisition_id = newAcq[0].acquisition_id;
+        await sbPatch("visitor_profiles", `uid=eq.${encodeURIComponent(uid)}`, { last_seen_at: nowIso });
     }
-  }
 
-  // ج. فحص قاعدة الـ 30 دقيقة لتحديد إن كنا نفتح زيارة جديدة (Visit) أم لا
-  let visit_id = null;
-  let isNewVisit = true;
-  
-  const latestVisits = await sbFetch('GET', `visits?uid=eq.${uid}&order=started_at.desc&limit=1&select=visit_id,started_at`);
-  
-  if (latestVisits && latestVisits.length > 0) {
-    const latestSes = await sbFetch('GET', `sessions?visit_id=eq.${latestVisits[0].visit_id}&order=last_activity_at.desc&limit=1&select=last_activity_at`);
-    if (latestSes && latestSes.length > 0 && latestSes[0].last_activity_at) {
-      const diffMs = now.getTime() - new Date(latestSes[0].last_activity_at).getTime();
-      const diffMins = diffMs / 60000;
-      if (diffMins < 30) {
-        isNewVisit = false;
-        visit_id = latestVisits[0].visit_id;
-      }
+    // 2) Resolve acquisition.
+    const acquisitionId = await resolveAcquisition(uid, data);
+
+    // 3) 30-Minute rule.
+    const activeVisitId = await findActiveVisit(uid);
+    let visitId;
+
+    if (!activeVisitId) {
+        // New visit.
+        const newVisit = await sbInsert("visits", {
+            uid,
+            acquisition_id: acquisitionId,
+            entry_page:     landing,
+            exit_page:      landing,
+            pages_viewed:   1,
+            duration_sec:   0,
+            is_bounce:      true,
+            started_at:     nowIso
+        });
+        visitId = newVisit && newVisit[0] ? newVisit[0].visit_id : null;
+
+        if (visitId) {
+            await sbInsert("visit_journeys", {
+                visit_id: visitId,
+                uid,
+                journey:  [landing]
+            });
+        }
+
+        // Increment total_visits.
+        const cur = (existingProfile && existingProfile[0]) ? Number(existingProfile[0].total_visits) : 0;
+        await sbPatch("visitor_profiles", `uid=eq.${encodeURIComponent(uid)}`, { total_visits: cur + 1 });
+    } else {
+        // Continue existing visit — append to journey.
+        visitId = activeVisitId;
+
+        const jrows = await sbGet(`visit_journeys?visit_id=eq.${visitId}&select=journey`);
+        const journey = (jrows && jrows[0] && Array.isArray(jrows[0].journey)) ? jrows[0].journey : [];
+        journey.push(landing);
+        await sbPatch("visit_journeys", `visit_id=eq.${visitId}`, { journey });
+
+        const vrows = await sbGet(`visits?visit_id=eq.${visitId}&select=pages_viewed`);
+        const pv = (vrows && vrows[0]) ? Number(vrows[0].pages_viewed) : 1;
+        await sbPatch("visits", `visit_id=eq.${visitId}`, {
+            exit_page:    landing,
+            pages_viewed: pv + 1
+        });
     }
-  }
 
-  // د. إنشاء زيارة جديدة ورحلة جديدة إذا لزم الأمر
-  if (isNewVisit) {
-    visit_id = crypto.randomUUID();
-    await sbFetch('POST', 'visits', '', { 
-      visit_id, uid, acquisition_id, entry_page: data.landing_page || '/', exit_page: data.landing_page || '/', started_at: nowIso 
+    // 4) Insert sessions row.
+    if (visitId) {
+        await sbInsert("sessions", {
+            session_id:       sessionId,
+            visit_id:         visitId,
+            uid,
+            device_type:      deviceType,
+            started_at:       nowIso,
+            last_activity_at: nowIso,
+            duration_sec:     0,
+            max_scroll_pct:   0
+        });
+    }
+
+    return { ok: true, visit_id: visitId, acquisition_id: acquisitionId };
+}
+
+async function handlePageChange(uid, sessionId, data) {
+    const nowIso = new Date().toISOString();
+    const page   = data.page || "/";
+
+    // Look up the session → visit.
+    const srows = await sbGet(`sessions?session_id=eq.${sessionId}&select=visit_id`);
+    if (!srows || srows.length === 0) return { ok: false, reason: "session_not_found" };
+    const visitId = srows[0].visit_id;
+
+    // 1) Update session activity.
+    await sbPatch("sessions", `session_id=eq.${sessionId}`, { last_activity_at: nowIso });
+
+    // 2) Append to journey.
+    const jrows   = await sbGet(`visit_journeys?visit_id=eq.${visitId}&select=journey`);
+    const journey = (jrows && jrows[0] && Array.isArray(jrows[0].journey)) ? jrows[0].journey : [];
+    journey.push(page);
+    await sbPatch("visit_journeys", `visit_id=eq.${visitId}`, { journey });
+
+    // 3) Update visit counters.
+    const vrows = await sbGet(`visits?visit_id=eq.${visitId}&select=pages_viewed`);
+    const pv    = (vrows && vrows[0]) ? Number(vrows[0].pages_viewed) : 1;
+    await sbPatch("visits", `visit_id=eq.${visitId}`, {
+        exit_page:    page,
+        pages_viewed: pv + 1,
+        is_bounce:    false
     });
-    
-    // إنشاء صف الرحلة (Journey) المرتبط بالزيارة
-    await sbFetch('POST', 'visit_journeys', '', { 
-      visit_id, uid, journey: [data.landing_page || '/'] 
+
+    return { ok: true };
+}
+
+async function handleExit(uid, sessionId, data) {
+    const nowIso       = new Date().toISOString();
+    const durationSec  = Math.max(0, Number(data.duration_sec) || 0);
+    const maxScrollPct = Math.max(0, Math.min(100, Number(data.max_scroll_pct) || 0));
+    const exitPage     = data.exit_page || data.page || null;
+
+    const srows = await sbGet(`sessions?session_id=eq.${sessionId}&select=visit_id`);
+    if (!srows || srows.length === 0) return { ok: false, reason: "session_not_found" };
+    const visitId = srows[0].visit_id;
+
+    // 1) Update session.
+    await sbPatch("sessions", `session_id=eq.${sessionId}`, {
+        ended_at:         nowIso,
+        last_activity_at: nowIso,
+        duration_sec:     durationSec,
+        max_scroll_pct:   maxScrollPct
     });
 
-    // زيادة عداد الزيارات الكلي
-    await sbFetch('PATCH', `visitor_profiles?uid=eq.${uid}`, '', { last_seen_at: nowIso, total_visits: (await sbFetch('GET', `visitor_profiles?uid=eq.${uid}&select=total_visits`))[0].total_visits + 1 });
-  } else {
-    // إذا لم تكن زيارة جديدة، نضيف صفحة الدخول للرحلة الحالية
-    const journeyData = await sbFetch('GET', `visit_journeys?visit_id=eq.${visit_id}&select=journey`);
-    if (journeyData && journeyData.length > 0 && data.landing_page) {
-      let currentJourney = journeyData[0].journey || [];
-      if (!currentJourney.includes(data.landing_page)) {
-        currentJourney.push(data.landing_page);
-        await sbFetch('PATCH', `visit_journeys?visit_id=eq.${visit_id}`, '', { journey: currentJourney });
-      }
-    }
-    // تحديث صفحة الخروج وعدد الصفحات في الزيارة الحالية
-    const visitData = await sbFetch('GET', `visits?visit_id=eq.${visit_id}&select=pages_viewed`);
-    if(visitData && visitData.length > 0) {
-       await sbFetch('PATCH', `visits?visit_id=eq.${visit_id}`, '', { exit_page: data.landing_page, pages_viewed: (visitData[0].pages_viewed || 0) + 1 });
-    }
-  }
+    // 2) Update visit.
+    const visitPatch = {
+        ended_at:     nowIso,
+        duration_sec: durationSec,
+        is_bounce:    false
+    };
+    if (exitPage) visitPatch.exit_page = exitPage;
+    await sbPatch("visits", `visit_id=eq.${visitId}`, visitPatch);
 
-  // هـ. إنشاء جلسة (Session) جديدة دائماً
-  await sbFetch('POST', 'sessions', '', { 
-    session_id: finalSessionId, visit_id, uid, device_type: data.device_type || null, started_at: nowIso, last_activity_at: nowIso 
-  });
-
-  return jsonResponse({ success: true, visit_id, session_id: finalSessionId });
+    return { ok: true };
 }
 
-// =============================================
-// 2) PAGE_CHANGE (تحديث الرحلة فقط - بدون إدراج)
-// =============================================
-async function handlePageChange(uid, session_id, data) {
-  if (!session_id || !data.page) return jsonResponse({ error: 'Missing data' }, 400);
-  
-  // 1. تحديث وقت النشاط في الجلسة
-  await sbFetch('PATCH', `sessions?session_id=eq.${session_id}`, '', { last_activity_at: new Date().toISOString() });
-  
-  // 2. جلب الـ visit_id من الجلسة
-  const sesRows = await sbFetch('GET', `sessions?session_id=eq.${session_id}&select=visit_id`);
-  if (!sesRows || sesRows.length === 0) return jsonResponse({ success: true });
-  
-  const visit_id = sesRows[0].visit_id;
+async function handleHeartbeat(sessionId) {
+    await sbPatch("sessions", `session_id=eq.${sessionId}`, {
+        last_activity_at: new Date().toISOString()
+    });
+    return { ok: true };
+}
 
-  // 3. إضافة الصفحة إلى مصفوفة الرحلة (Journey)
-  const journeyData = await sbFetch('GET', `visit_journeys?visit_id=eq.${visit_id}&select=journey`);
-  if (journeyData && journeyData.length > 0) {
-    let currentJourney = journeyData[0].journey || [];
-    if (!currentJourney.includes(data.page)) {
-      currentJourney.push(data.page);
-      await sbFetch('PATCH', `visit_journeys?visit_id=eq.${visit_id}`, '', { journey: currentJourney });
+async function handleScroll(sessionId, data) {
+    const incoming = Math.max(0, Math.min(100, Number(data.scroll_pct) || 0));
+    const srows    = await sbGet(`sessions?session_id=eq.${sessionId}&select=max_scroll_pct`);
+    if (!srows || srows.length === 0) return { ok: false, reason: "session_not_found" };
+    const current = Number(srows[0].max_scroll_pct) || 0;
+    if (incoming > current) {
+        await sbPatch("sessions", `session_id=eq.${sessionId}`, {
+            max_scroll_pct:   incoming,
+            last_activity_at: new Date().toISOString()
+        });
     }
-  }
-
-  // 4. تحديث صفحة الخروج وعدد الصفحات في الزيارة
-  const visitData = await sbFetch('GET', `visits?visit_id=eq.${visit_id}&select=pages_viewed`);
-  if(visitData && visitData.length > 0) {
-     await sbFetch('PATCH', `visits?visit_id=eq.${visit_id}`, '', { exit_page: data.page, pages_viewed: (visitData[0].pages_viewed || 0) + 1 });
-  }
-
-  return jsonResponse({ success: true });
+    return { ok: true };
 }
 
-// =============================================
-// 3) EXIT (إغلاق الجلسة والزيارة)
-// =============================================
-async function handleExit(uid, session_id, data) {
-  if (!session_id) return jsonResponse({ error: 'Missing session_id' }, 400);
-  const now = new Date().toISOString();
-  const durationSec = Number(data.duration_sec) || 0;
+async function handleCommercialEvent(eventType, uid, sessionId, data) {
+    const nowIso = new Date().toISOString();
 
-  // إغلاق الجلسة
-  await sbFetch('PATCH', `sessions?session_id=eq.${session_id}`, '', { ended_at: now, duration_sec: durationSec });
-
-  // إغلاق الزيارة
-  const sesRows = await sbFetch('GET', `sessions?session_id=eq.${session_id}&select=visit_id`);
-  if (sesRows && sesRows.length > 0 && sesRows[0].visit_id) {
-    const visitUpdates = { ended_at: now, duration_sec: durationSec, is_bounce: false };
-    if (data.exit_page) visitUpdates.exit_page = data.exit_page;
-    await sbFetch('PATCH', `visits?visit_id=eq.${sesRows[0].visit_id}`, '', visitUpdates);
-  }
-
-  return jsonResponse({ success: true });
-}
-
-// =============================================
-// 4) HEARTBEAT & SCROLL (تحديث محلي فقط)
-// =============================================
-async function handleHeartbeat(session_id) {
-  if (!session_id) return jsonResponse({ success: true });
-  await sbFetch('PATCH', `sessions?session_id=eq.${session_id}`, '', { last_activity_at: new Date().toISOString() });
-  return jsonResponse({ success: true });
-}
-
-async function handleScroll(session_id, data) {
-  const scrollPct = Number(data.scroll_pct) || 0;
-  if (!session_id || scrollPct === 0) return jsonResponse({ success: true });
-  const sesRows = await sbFetch('GET', `sessions?session_id=eq.${session_id}&select=max_scroll_pct`);
-  if (sesRows && sesRows.length > 0) {
-    const currentMax = Number(sesRows[0].max_scroll_pct) || 0;
-    if (scrollPct > currentMax) {
-      await sbFetch('PATCH', `sessions?session_id=eq.${session_id}`, '', { max_scroll_pct: scrollPct });
+    // Look up visit_id + acquisition_id for direct attribution.
+    let visitId = null;
+    let acquisitionId = null;
+    if (sessionId) {
+        const srows = await sbGet(`sessions?session_id=eq.${sessionId}&select=visit_id`);
+        if (srows && srows[0]) visitId = srows[0].visit_id;
     }
-  }
-  return jsonResponse({ success: true });
+    if (visitId) {
+        const vrows = await sbGet(`visits?visit_id=eq.${visitId}&select=acquisition_id`);
+        if (vrows && vrows[0]) acquisitionId = vrows[0].acquisition_id;
+    }
+
+    // 1) Insert event row.
+    await sbInsert("events", {
+        event_uuid:     crypto.randomUUID(),
+        uid,
+        visit_id:       visitId,
+        session_id:     sessionId || null,
+        acquisition_id: acquisitionId,
+        event_type:     eventType,
+        event_value:    data.event_value || data.value || null,
+        created_at:     nowIso
+    });
+
+    // 2) Update lead score + conversions + status.
+    const prows = await sbGet(
+        `visitor_profiles?uid=eq.${encodeURIComponent(uid)}&select=lead_score,total_conversions`
+    );
+    const curScore       = (prows && prows[0]) ? Number(prows[0].lead_score)        : 0;
+    const curConversions = (prows && prows[0]) ? Number(prows[0].total_conversions) : 0;
+    const delta          = SCORE_WEIGHTS[eventType] || 0;
+    const newScore       = curScore + delta;
+
+    await sbPatch("visitor_profiles", `uid=eq.${encodeURIComponent(uid)}`, {
+        lead_score:        newScore,
+        total_conversions: curConversions + 1,
+        lead_status:       computeLeadStatus(newScore),
+        last_seen_at:      nowIso
+    });
+
+    return { ok: true, lead_score: newScore };
 }
 
-// =============================================
-// 5) CONVERSIONS (الأفعال التجارية فقط - INSERT إلى events)
-// =============================================
-async function handleConversion(uid, session_id, event_type, data) {
-  const now = new Date().toISOString();
-  let visit_id = null;
-  let acquisition_id = null;
+// ---------- Main handler ----------
+export async function onRequestPost(context) {
+    try {
+        const body       = await context.request.json();
+        const eventType  = body.event_type;
+        const uid        = body.uid;
+        const sessionId  = body.session_id || null;
+        const data       = body.data || body;
 
-  // جلب visit_id و acquisition_id من الجلسة الحالية لربط الحدث بهما
-  if (session_id) {
-    const sesRows = await sbFetch('GET', `sessions?session_id=eq.${session_id}&select=visit_id`);
-    if (sesRows && sesRows.length > 0) {
-      visit_id = sesRows[0].visit_id;
-      const visitRows = await sbFetch('GET', `visits?visit_id=eq.${visit_id}&select=acquisition_id`);
-      if (visitRows && visitRows.length > 0) acquisition_id = visitRows[0].acquisition_id;
-    }
-  }
+        if (!eventType || !uid) {
+            return new Response(JSON.stringify({ ok: false, error: "missing event_type or uid" }), {
+                status:  400,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
 
-  // إدراج الحدث (دون تحديد event_uuid ليجعله Supabase تلقائياً لمنع التكرار)
-  await sbFetch('POST', 'events', '', { 
-    uid, visit_id, session_id, acquisition_id, event_type, event_value: data.event_value || null, created_at: now 
-  });
+        let result;
+        switch (eventType) {
+            case "session_start":
+                result = await handleSessionStart(uid, sessionId, data, context.request); break;
+            case "page_change":
+                result = await handlePageChange(uid, sessionId, data); break;
+            case "exit":
+                result = await handleExit(uid, sessionId, data); break;
+            case "heartbeat":
+                result = await handleHeartbeat(sessionId); break;
+            case "scroll":
+                result = await handleScroll(sessionId, data); break;
+            case "file_download":
+            case "form_submit":
+            case "affiliate_click":
+                result = await handleCommercialEvent(eventType, uid, sessionId, data); break;
+            default:
+                return new Response(JSON.stringify({ ok: false, error: "unknown event_type" }), {
+                    status:  400,
+                    headers: { "Content-Type": "application/json" }
+                });
+        }
 
-  // تحديث النقاط والعدادات في ملف الزائر
-  const scoreMap = { 'form_submit': 30, 'file_download': 20, 'affiliate_click': 50 };
-  const scoreAdd = scoreMap[event_type] || 10;
-  
-  const profile = await sbFetch('GET', `visitor_profiles?uid=eq.${uid}&select=lead_score,lead_status,total_conversions`);
-  if (profile && profile.length > 0) {
-    const currentScore = Number(profile[0].lead_score) || 0;
-    const currentConv = Number(profile[0].total_conversions) || 0;
-    const newScore = currentScore + scoreAdd;
-    let newStatus = profile[0].lead_status;
-    if (newScore >= 70) newStatus = 'hot'; else if (newScore >= 30) newStatus = 'warm';
-    
-    // إذا كان النموذج، نحدث حالة التعرف
-    const updates = { lead_score: newScore, lead_status: newStatus, total_conversions: currentConv + 1, last_seen_at: now };
-    if (event_type === 'form_submit' && data.identified_email) {
-      updates.is_identified = true;
-      updates.identified_email = data.identified_email;
-      if (data.identified_name) updates.identified_name = data.identified_name;
-    }
-    await sbFetch('PATCH', `visitor_profiles?uid=eq.${uid}`, '', updates);
-  }
-
-  return jsonResponse({ success: true });
-}
+        return new Response(JSON.stringify(result), {
+            status:  200,
+            headers: { "Content-Type": "application/json", "Access-Control-Al

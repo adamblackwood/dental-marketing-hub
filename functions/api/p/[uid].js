@@ -1,23 +1,34 @@
 // functions/api/p/[uid].js
-// تحويل العميل البارد للرئيسية مع تحديث حالة entered_site في email_activities
+// GET /api/p/UID  — Cold email link click → mark entered_site, redirect to home.
 
-// الإصلاح النهائي: استخدام ../ بدلاً من ../../
-import { SUPABASE_URL, SUPABASE_SERVICE_KEY } from '../config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
+
+const SB_HEADERS = {
+    "apikey":         SUPABASE_ANON_KEY,
+    "Authorization":  `Bearer ${SUPABASE_ANON_KEY}`,
+    "Content-Type":   "application/json"
+};
+
+async function markEnteredSite(uid) {
+    try {
+        await fetch(
+            `${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${encodeURIComponent(uid)}`,
+            {
+                method:  "PATCH",
+                headers: {...SB_HEADERS, "Prefer": "return=minimal" },
+                body:    JSON.stringify({ entered_site: true })
+            }
+        );
+    } catch (_) { /* swallow */ }
+}
 
 export async function onRequestGet(context) {
-  const uid = context.params.uid;
-  
-  if (uid) {
-    context.waitUntil((async () => {
-      try {
-        const headers = { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'Content-Type': 'application/json' };
-        await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&entered_site=is.false`, {
-          method: 'PATCH', headers, body: JSON.stringify({ entered_site: true })
-        });
-      } catch (e) { console.error(e); }
-    })());
-  }
+    const uid = context.params.uid;
+    const url = new URL(context.request.url);
 
-  const targetUrl = new URL(context.request.url).origin + `/?identified=${uid}`;
-  return Response.redirect(targetUrl, 302);
+    context.waitUntil(markEnteredSite(uid));
+
+    const origin = `${url.protocol}//${url.host}`;
+    const target = `${origin}/?identified=${encodeURIComponent(uid)}`;
+    return Response.redirect(target, 302);
 }

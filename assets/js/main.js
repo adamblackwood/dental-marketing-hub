@@ -1,94 +1,124 @@
 // assets/js/main.js
-// منطق النماذج، Exit Intent، وتتبع الأفعال التجارية - متوافق مع V4.0
+// Site-wide commercial-action wiring: affiliate links, lead forms, download buttons.
 
-import { initLayout } from './layout.js';
+(function () {
+    "use strict";
 
-document.addEventListener('DOMContentLoaded', () => {
-    // تهيئة الهيكل (Navbar/Footer)
-    initLayout();
-
-    const tracking = window.DentalTracking;
-    if (!tracking) return;
-
-    // =============================================
-    // 1) النماذج الذكية (Smart Forms)
-    // =============================================
-    const smartForm = document.getElementById('smartForm');
-    const exitForm = document.getElementById('exitForm');
-
-    if (smartForm) {
-        smartForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(smartForm);
-            const payload = Object.fromEntries(formData.entries());
-            payload.uid = tracking.uid;
-            payload.form_type = 'smart_form';
-
-            try {
-                const res = await fetch('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                if (res.ok) {
-                    tracking.sendTrackRequest('form_submit', { event_value: 'smart_form', identified_email: payload.identified_email });
-                    const container = document.getElementById('smartFormContainer');
-                    const thankYou = document.getElementById('thankYouMessage');
-                    if (container) container.style.display = 'none';
-                    if (thankYou) thankYou.style.display = 'block';
-                    setTimeout(() => { window.location.href = `/api/download?uid=${tracking.uid}&file=ultimate-dental-guide`; }, 1000);
-                }
-            } catch (err) { console.error('Form error', err); }
-        });
+    function getIds() {
+        const uid = (window.DMRH && window.DMRH.uid) || localStorage.getItem("dmrh_uid") || "";
+        const sid = (window.DMRH && window.DMRH.sid) || sessionStorage.getItem("dmrh_sid") || "";
+        return { uid, sid };
     }
 
-    if (exitForm) {
-        exitForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('exitEmail').value;
-            try {
-                const res = await fetch('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: tracking.uid, identified_email: email, form_type: 'exit_intent' }) });
-                if (res.ok) {
-                    tracking.sendTrackRequest('form_submit', { event_value: 'exit_intent', identified_email: email });
-                    const exitModal = document.getElementById('exitModal');
-                    if (exitModal) exitModal.classList.remove('active');
-                    alert('Check your inbox!');
-                }
-            } catch (err) { console.error('Exit form error', err); }
-        });
-    }
-
-    // =============================================
-    // 2) Exit Intent Popup
-    // =============================================
-    let exitShown = false;
-    document.addEventListener('mouseout', (e) => {
-        if (!exitShown && e.clientY < 5) {
-            const exitModal = document.getElementById('exitModal');
-            if (exitModal) exitModal.classList.add('active');
-            exitShown = true;
+    function appendQuery(href, params) {
+        try {
+            const url = new URL(href, window.location.origin);
+            Object.keys(params).forEach(k => {
+                if (params[k]) url.searchParams.set(k, params[k]);
+            });
+            return url.toString();
+        } catch (_) {
+            const sep = href.includes("?") ? "&" : "?";
+            const qs  = Object.keys(params).filter(k => params[k]).map(k => `${k}=${encodeURIComponent(params[k])}`).join("&");
+            return `${href}${sep}${qs}`;
         }
-    });
-    const closeExitModal = document.getElementById('closeExitModal');
-    if (closeExitModal) closeExitModal.addEventListener('click', () => document.getElementById('exitModal')?.classList.remove('active'));
+    }
 
-    // =============================================
-    // 3) تتبع الأفعال التجارية (Affiliate & Downloads)
-    // =============================================
-    const ghlBtn = document.getElementById('ghlAffiliateBtn');
-    if (ghlBtn) {
-        ghlBtn.addEventListener('click', (e) => {
+    // ---------- Affiliate links ----------
+    function bindAffiliateLinks() {
+        document.addEventListener("click", function (e) {
+            const link = e.target.closest('a[href*="/api/go"]');
+            if (!link) return;
+            const { uid, sid } = getIds();
+            const newHref = appendQuery(link.getAttribute("href"), { uid, sid });
+            link.setAttribute("href", newHref);
+            // Let the browser handle the actual navigation (no preventDefault).
+        }, true);
+    }
+
+    // ---------- Lead form ----------
+    function bindLeadForm() {
+        const form = document.getElementById("smart-lead-form");
+        if (!form) return;
+
+        form.addEventListener("submit", async function (e) {
             e.preventDefault();
-            // إرسال حدث النقر التجاري (سيقوم السيرفر بتسجيله في events table)
-            tracking.sendTrackRequest('affiliate_click', { event_value: 'ghl_click' });
-            setTimeout(() => { window.location.href = `/api/go?uid=${tracking.uid}&sid=${tracking.sessionId}`; }, 100);
+            const { uid, sid } = getIds();
+            const fd = new FormData(form);
+            const payload = {
+                uid,
+                session_id:         sid,
+                identified_name:    (fd.get("identified_name")    || "").toString().trim(),
+                identified_email:   (fd.get("identified_email")   || "").toString().trim(),
+                phone_number:       (fd.get("phone_number")       || "").toString().trim(),
+                biggest_challenge:  (fd.get("biggest_challenge")  || "").toString().trim()
+            };
+
+            const submitBtn = form.querySelector("[type=submit]");
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset.origText = submitBtn.textContent; submitBtn.textContent = "Sending..."; }
+
+            try {
+                const res  = await fetch("/api/subscribe", {
+                    method:  "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body:    JSON.stringify(payload)
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.success) {
+                    window.location.href = data.redirect || "/thank-you.html";
+                    return;
+                }
+                alert("Submission failed. Please try again.");
+            } catch (_) {
+                alert("Network error. Please try again.");
+            } finally {
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = submitBtn.dataset.origText || "Submit"; }
+            }
         });
     }
 
-    document.querySelectorAll('.download-link').forEach(link => {
-        link.addEventListener('click', (e) => {
+    // ---------- Download buttons ----------
+    function bindDownloadButtons() {
+        document.addEventListener("click", async function (e) {
+            const btn = e.target.closest(".download-btn");
+            if (!btn) return;
             e.preventDefault();
-            const file = link.dataset.file;
-            // إرسال حدث التحميل التجاري
-            tracking.sendTrackRequest('file_download', { event_value: file });
-            setTimeout(() => { window.location.href = `/api/download?uid=${tracking.uid}&file=${file}`; }, 100);
-        });
-    });
 
-});
+            const fileKey = btn.getAttribute("data-file") || btn.dataset.file;
+            if (!fileKey) return;
+
+            const { uid, sid } = getIds();
+            const origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = "Preparing...";
+
+            try {
+                const url = `/api/download?uid=${encodeURIComponent(uid)}&sid=${encodeURIComponent(sid)}&file=${encodeURIComponent(fileKey)}`;
+                const res = await fetch(url, { method: "GET" });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.success && data.download_url) {
+                    window.open(data.download_url, "_blank", "noopener,noreferrer");
+                } else {
+                    alert("Download unavailable. Please try again.");
+                }
+            } catch (_) {
+                alert("Network error. Please try again.");
+            } finally {
+                btn.disabled = false;
+                btn.textContent = origText;
+            }
+        });
+    }
+
+    function boot() {
+        bindAffiliateLinks();
+        bindLeadForm();
+        bindDownloadButtons();
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", boot);
+    } else {
+        boot();
+    }
+})();

@@ -1,16 +1,48 @@
 // functions/api/admin/events/[id].js
-// DELETE حذف حدث
+// DELETE /api/admin/events/:id — Delete an event by event_id.
 
-import { SUPABASE_URL, SUPABASE_SERVICE_KEY, ADMIN_PASSWORD } from '../../config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../../config.js";
+import { isAuthenticated, unauthorizedResponse } from "../auth.js";
+
+const SB_HEADERS = {
+    "apikey":        SUPABASE_ANON_KEY,
+    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+    "Content-Type":  "application/json"
+};
 
 export async function onRequestDelete(context) {
-  const cookieHeader = context.request.headers.get('cookie') || '';
-  if (!cookieHeader.includes(`admin_session=${ADMIN_PASSWORD}`)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-  
-  const eventId = context.params.id;
-  await fetch(`${SUPABASE_URL}/rest/v1/events?event_id=eq.${eventId}`, {
-    method: 'DELETE',
-    headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` }
-  });
-  return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+    if (!isAuthenticated(context.request)) return unauthorizedResponse();
+
+    const eventId = context.params.id;
+    if (!eventId) {
+        return new Response(JSON.stringify({ error: "event_id required" }), {
+            status:  400,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
+    try {
+        const res = await fetch(
+            `${SUPABASE_URL}/rest/v1/events?event_id=eq.${encodeURIComponent(eventId)}`,
+            {
+                method:  "DELETE",
+                headers: {...SB_HEADERS, "Prefer": "return=minimal" }
+            }
+        );
+        if (!res.ok) {
+            return new Response(JSON.stringify({ error: "supabase_error" }), {
+                status:  500,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+        return new Response(JSON.stringify({ success: true }), {
+            status:  200,
+            headers: { "Content-Type": "application/json" }
+        });
+    } catch (err) {
+        return new Response(JSON.stringify({ error: String(err && err.message || err) }), {
+            status:  500,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
 }

@@ -1,14 +1,38 @@
 // functions/api/admin/sessions/index.js
-// GET الجلسات
+// GET /api/admin/sessions — List all sessions, newest first.
 
-import { SUPABASE_URL, SUPABASE_SERVICE_KEY, ADMIN_PASSWORD } from '../../config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../../config.js";
+import { isAuthenticated, unauthorizedResponse } from "../auth.js";
+
+const SB_HEADERS = {
+    "apikey":        SUPABASE_ANON_KEY,
+    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+    "Content-Type":  "application/json"
+};
 
 export async function onRequestGet(context) {
-  const cookieHeader = context.request.headers.get('cookie') || '';
-  if (!cookieHeader.includes(`admin_session=${ADMIN_PASSWORD}`)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-  
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/sessions?select=*&order=started_at.desc.nullslast`, {
-    headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` }
-  });
-  return new Response(JSON.stringify(await res.json()), { headers: { 'Content-Type': 'application/json' } });
+    if (!isAuthenticated(context.request)) return unauthorizedResponse();
+
+    try {
+        const res = await fetch(
+            `${SUPABASE_URL}/rest/v1/sessions?select=*&order=started_at.desc`,
+            { headers: SB_HEADERS }
+        );
+        if (!res.ok) {
+            return new Response(JSON.stringify({ error: "supabase_error" }), {
+                status:  500,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+        const data = await res.json();
+        return new Response(JSON.stringify({ data }), {
+            status:  200,
+            headers: { "Content-Type": "application/json" }
+        });
+    } catch (err) {
+        return new Response(JSON.stringify({ error: String(err && err.message || err) }), {
+            status:  500,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
 }

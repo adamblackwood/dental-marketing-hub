@@ -1,43 +1,50 @@
 // functions/api/admin/analytics.js
-// تجميع البيانات للـ KPIs والمخططات بناءً على هيكلية V4.0
+// GET /api/admin/analytics — Aggregated KPIs for the dashboard top row.
 
-import { SUPABASE_URL, SUPABASE_SERVICE_KEY, ADMIN_PASSWORD } from '../config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
+import { isAuthenticated, unauthorizedResponse } from "./auth.js";
 
-function checkAuth(request) {
-  const cookieHeader = request.headers.get('cookie') || '';
-  return cookieHeader.includes(`admin_session=${ADMIN_PASSWORD}`);
+const SB_HEADERS = {
+    "apikey":        SUPABASE_ANON_KEY,
+    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+    "Content-Type":  "application/json"
+};
+
+async function countTable(path) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+        method:  "HEAD",
+        headers: { ...SB_HEADERS, "Prefer": "count=exact", "Range": "0-0" }
+    });
+    if (!res.ok) return 0;
+    const range = res.headers.get("Content-Range") || res.headers.get("content-range") || "";
+    const total = range.split("/")[1];
+    return total ? Number(total) : 0;
 }
 
 export async function onRequestGet(context) {
-  if (!checkAuth(context.request)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+    if (!isAuthenticated(context.request)) return unauthorizedResponse();
 
-  const headers = { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` };
+    try {
+        const [totalVisitors, hotLeads, totalVisits, totalConversions] = await Promise.all([
+            countTable("visitor_profiles?select=uid"),
+            countTable("visitor_profiles?select=uid&lead_status=eq.hot"),
+            countTable("visits?select=visit_id"),
+            countTable("events?select=event_id&event_type=in.(file_download,form_submit,affiliate_click)")
+        ]);
 
-  try {
-    // 1. إجمالي الزوار (الملفات الشخصية)
-    const pRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?select=uid`, { headers });
-    const total_visitors = (await pRes.json()).length;
-
-    // 2. العملاء الساخنين
-    const hRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?lead_status=eq.hot&select=uid`, { headers });
-    const hot_leads = (await hRes.json()).length;
-
-    // 3. إجمالي الزيارات (حسب قاعدة الـ 30 دقيقة - من جدول visits)
-    const vRes = await fetch(`${SUPABASE_URL}/rest/v1/visits?select=visit_id`, { headers });
-    const total_visits = (await vRes.json()).length;
-
-    // 4. إجمالي التحويلات التجارية (من جدول events للأحداث المحددة)
-    const cRes = await fetch(`${SUPABASE_URL}/rest/v1/events?or=(event_type.eq.file_download,event_type.eq.form_submit,event_type.eq.affiliate_click)&select=event_id`, { headers });
-    const total_conversions = (await cRes.json()).length;
-
-    return new Response(JSON.stringify({
-      total_visitors,
-      hot_leads,
-      total_visits,
-      total_conversions
-    }), { headers: { 'Content-Type': 'application/json' } });
-
-  } catch (err) {
-    return new Response(JSON.stringify({ error: 'Analytics fetch failed' }), { status: 500 });
-  }
+        return new Response(JSON.stringify({
+            total_visitors:    totalVisitors,
+            hot_leads:         hotLeads,
+            total_visits:      totalVisits,
+            total_conversions: totalConversions
+        }), {
+            status:  200,
+            headers: { "Content-Type": "application/json" }
+        });
+    } catch (err) {
+        return new Response(JSON.stringify({ error: String(err && err.message || err) }), {
+            status:  500,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
 }
