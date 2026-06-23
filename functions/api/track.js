@@ -21,6 +21,20 @@ const getVisitIdFromSession = async (session_id) => {
   return data.length > 0 ? data[0].visit_id : null;
 };
 
+// Helper function to update score without bloating code
+const updateEngagementScore = async (uid, scoreToAdd) => {
+  const profRes = await sbFetch(`visitor_profiles?uid=eq.${uid}&select=lead_score`, 'GET');
+  const profData = await profRes.json();
+  if (profData.length > 0) {
+    const newScore = profData[0].lead_score + scoreToAdd;
+    const newStatus = newScore >= 70 ? 'hot' : (newScore >= 30 ? 'warm' : 'cold');
+    await sbFetch(`visitor_profiles?uid=eq.${uid}`, 'PATCH', { 
+      lead_score: newScore, 
+      lead_status: newStatus 
+    });
+  }
+};
+
 export async function onRequestPost(context) {
   try {
     const data = await context.request.json();
@@ -35,17 +49,14 @@ export async function onRequestPost(context) {
     // 1. SESSION_START
     // ------------------------------------------------------------------
     if (event_type === 'session_start') {
-      // Check if session already exists (Page Refresh)
       const checkSessRes = await sbFetch(`sessions?session_id=eq.${session_id}&select=visit_id`, 'GET');
       const checkSessData = await checkSessRes.json();
       
       if (checkSessData.length > 0) {
-        // It's a refresh! Just update activity, do NOT bloat the journey.
         await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', { last_activity_at: now });
         return new Response(JSON.stringify({ success: true, visit_id: checkSessData[0].visit_id }), { status: 200 });
       }
 
-      // It's a new session. Upsert visitor_profiles
       await sbFetch('visitor_profiles', 'POST', {
         uid,
         last_seen_at: now
@@ -86,10 +97,9 @@ export async function onRequestPost(context) {
         const profRes = await sbFetch(`visitor_profiles?uid=eq.${uid}&select=total_visits`, 'GET');
         const profData = await profRes.json();
         const totalVisits = profData.length > 0 ? profData[0].total_visits + 1 : 1;
-        await sbFetch(`visitor_profiles?uid=eq.${uid}`, 'PATCH', { total_visits: totalVisits });
+        await sbFetch(`visitor_profiles?uid=eq.${uid}`, 'PATCH', { total_visits: total_visits });
 
       } else {
-        // Active visit exists - Append to journey ONLY if it's not a duplicate of the last page
         const journeyRes = await sbFetch(`visit_journeys?visit_id=eq.${visitId}&select=journey`, 'GET');
         const journeyData = await journeyRes.json();
         const currentJourney = journeyData[0].journey;
@@ -108,7 +118,6 @@ export async function onRequestPost(context) {
         }
       }
 
-      // Insert new session
       await sbFetch('sessions', 'POST', {
         session_id: session_id,
         visit_id: visitId,
@@ -134,7 +143,6 @@ export async function onRequestPost(context) {
       const journeyData = await journeyRes.json();
       const currentJourney = journeyData[0].journey;
       
-      // Prevent duplicate consecutive pages
       if (currentJourney[currentJourney.length - 1] !== data.page) {
         currentJourney.push(data.page);
         await sbFetch(`visit_journeys?visit_id=eq.${visitId}`, 'PATCH', { journey: currentJourney });
@@ -142,10 +150,16 @@ export async function onRequestPost(context) {
         const visitRes = await sbFetch(`visits?visit_id=eq.${visitId}&select=pages_viewed`, 'GET');
         const visitData = await visitRes.json();
         const pagesViewed = visitData[0].pages_viewed + 1;
+        
         await sbFetch(`visits?visit_id=eq.${visitId}`, 'PATCH', {
           exit_page: data.page,
           pages_viewed: pagesViewed
         });
+
+        // ENGAGEMENT SCORING: +10 points when user views their 3rd page (highly engaged)
+        if (pagesViewed === 3) {
+          await updateEngagementScore(uid, 10);
+        }
       }
 
       return new Response(JSON.stringify({ success: true }), { status: 200 });
@@ -188,9 +202,16 @@ export async function onRequestPost(context) {
     if (event_type === 'scroll') {
       const sessRes = await sbFetch(`sessions?session_id=eq.${session_id}&select=max_scroll_pct`, 'GET');
       const sessData = await sessRes.json();
+      
       if (sessData.length > 0 && data.scroll > sessData[0].max_scroll_pct) {
         await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', { max_scroll_pct: data.scroll });
       }
+
+      // ENGAGEMENT SCORING: +10 points if user reaches the absolute bottom (100%)
+      if (data.scroll === 100) {
+        await updateEngagementScore(uid, 10);
+      }
+
       return new Response(JSON.stringify({ success: true }), { status: 200 });
     }
 
