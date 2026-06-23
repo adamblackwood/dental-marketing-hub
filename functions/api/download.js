@@ -7,7 +7,7 @@ import {
     FILES_MAP,
     SCORE_WEIGHTS,
     LEAD_STATUS_THRESHOLDS
-} from "../api/config.js";
+} from "./config.js";
 
 const SB_HEADERS = {
     "apikey":         SUPABASE_ANON_KEY,
@@ -44,7 +44,8 @@ export async function onRequestGet(context) {
         }
 
         // Attribution lookup.
-        let visitId = null, acquisitionId = null;
+        let visitId = null;
+        let acquisitionId = null;
         if (sessionId) {
             const sRes = await fetch(
                 `${SUPABASE_URL}/rest/v1/sessions?session_id=eq.${sessionId}&select=visit_id`,
