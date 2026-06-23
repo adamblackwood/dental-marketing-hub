@@ -96,7 +96,7 @@ async function fetchTableData() {
                         <td>${v.identified_email || '<span style="color:var(--text-muted)">Anonymous</span>'}</td>
                         <td><span class="badge ${badgeClass}">${v.lead_status}</span></td>
                         <td>${v.lead_score}</td>
-                        <td>${new Date(v.last_seen_at).toLocaleString()}</td>
+                        <td>${new Date(v.last_seen_at).toLocaleString('en-US')}</td>
                         <td>
                             <button class="btn-action btn-360" data-id="${v.uid}">360° View</button>
                             <button class="btn-action btn-delete" data-id="${v.uid}">Delete</button>
@@ -112,7 +112,7 @@ async function fetchTableData() {
                         <td>${s.uid.substring(0,8)}...</td>
                         <td>${s.device_type}</td>
                         <td>${s.max_scroll_pct}%</td>
-                        <td>${new Date(s.started_at).toLocaleString()}</td>
+                        <td>${new Date(s.started_at).toLocaleString('en-US')}</td>
                         <td>
                             <button class="btn-action btn-delete" data-id="${s.session_id}">Delete</button>
                         </td>
@@ -127,7 +127,7 @@ async function fetchTableData() {
                         <td>${ev.event_type}</td>
                         <td>${ev.event_value || '-'}</td>
                         <td>${ev.uid.substring(0,8)}...</td>
-                        <td>${new Date(ev.created_at).toLocaleString()}</td>
+                        <td>${new Date(ev.created_at).toLocaleString('en-US')}</td>
                         <td>
                             <button class="btn-action btn-delete" data-id="${ev.event_id}">Delete</button>
                         </td>
@@ -163,11 +163,22 @@ async function openJourneyModal(uid) {
             <h3>Navigation Journey (Zero-Bloat JSONB)</h3>
         `;
 
+        // Map visit_id to started_at to fix the "Invalid Date" issue
+        const visitDates = {};
+        if (data.visits) {
+            data.visits.forEach(v => {
+                visitDates[v.visit_id] = v.started_at;
+            });
+        }
+
         if (data.journeys && data.journeys.length > 0) {
             data.journeys.forEach(j => {
+                const visitDate = visitDates[j.visit_id] ? new Date(visitDates[j.visit_id]).toLocaleString('en-US') : 'Unknown Date';
+                
                 html += `<div style="margin-bottom: 1.5rem; border-left: 2px solid var(--border); padding-left: 1rem;">`;
-                html += `<div style="color: var(--text-muted); font-size: 0.85rem;">Visit: ${new Date(j.visit_id).toLocaleString()}</div>`;
+                html += `<div style="color: var(--text-muted); font-size: 0.85rem;">Visit Started: ${visitDate}</div>`;
                 html += `<div class="timeline">`;
+                
                 if (Array.isArray(j.journey)) {
                     j.journey.forEach((path, idx) => {
                         html += `
@@ -187,7 +198,8 @@ async function openJourneyModal(uid) {
         if (data.events && data.events.length > 0) {
             html += `<h3 style="margin-top:1.5rem;">Commercial Events</h3><ul>`;
             data.events.forEach(ev => {
-                html += `<li><strong>${ev.event_type}</strong> - ${ev.event_value || ''} (${new Date(ev.created_at).toLocaleString()})</li>`;
+                const eventDate = new Date(ev.created_at).toLocaleString('en-US');
+                html += `<li><strong>${ev.event_type}</strong> - ${ev.event_value || ''} (${eventDate})</li>`;
             });
             html += `</ul>`;
         }
