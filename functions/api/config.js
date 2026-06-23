@@ -1,16 +1,16 @@
 // functions/api/config.js
 // Central configuration — replace placeholder strings before deployment.
 
-export const SUPABASE_URL          = "https://YOUR-PROJECT-REF.supabase.co";
-export const SUPABASE_ANON_KEY     = "YOUR_SUPABASE_ANON_KEY";
-export const SUPABASE_SERVICE_KEY  = "YOUR_SUPABASE_SERVICE_ROLE_KEY";
+export const SUPABASE_URL          = "https://vrqpshvlwtxvnbdwwfss.supabase.co";
+export const SUPABASE_ANON_KEY     = "sb_publishable_KsDqW-jirTZVJQPv-y-jeA_doTRI0Ci";
+export const SUPABASE_SERVICE_KEY  = "sb_secret_F4Fh6A-75GfFBc9WmDtq1A__7rYFYdj";
 
-export const TELEGRAM_BOT_TOKEN    = "YOUR_TELEGRAM_BOT_TOKEN";
-export const TELEGRAM_CHAT_ID      = "YOUR_TELEGRAM_CHAT_ID";
+export const TELEGRAM_BOT_TOKEN    = "8424656659:AAEbo9X2Kuw1QZDRPyu_Uy-SNg6T36vQoRg";
+export const TELEGRAM_CHAT_ID      = "7203463194"
 
-export const GOOGLE_SHEETS_WEBHOOK = "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec";
+export const GOOGLE_SHEETS_WEBHOOK = "https://script.google.com/macros/s/AKfycbwCSBtTxJVafochcb5tKHjPXTUdUjHaKlP0HOgO75iqojNcR9BwnCKCMot7GgCasXkSBQ/exec";
 
-export const GHL_AFFILIATE_LINK    = "https://www.gohighlevel.com/?fp_ref=YOUR_AFFILIATE_ID";
+export const GHL_AFFILIATE_LINK    = "https://www.gohighlevel.com/?fp_ref=robert-blackwood";
 
 export const ADMIN_PASSWORD        = "ChangeMe_StrongAdminPassword_2026!";
 export const ADMIN_SESSION_SECRET  = "ChangeMe_HMAC_Secret_For_Cookies_2026!";
