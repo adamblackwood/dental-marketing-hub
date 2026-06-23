@@ -4,71 +4,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="robots" content="noindex, nofollow">
-    <title>Admin Login — Dental Marketing Hubitle>
+    <title>Admin Login - Dental Hub V4</title>
     <link rel="stylesheet" href="/assets/css/dashboard.css">
 </head>
-<body class="login-body">
-    <main class="login-shell">
-        <section class="login-card" role="dialog" aria-labelledby="login-title">
-            <div class="login-logo">🦷 DMRH</div>
-            <h1 id="login-title">Admin Sign-In</h1>
-            <p class="login-subtitle">Enter the master password to access the dashboard.</p>
-
-            <form id="login-form" autocomplete="off">
-                <label for="password">Password</label>
-                <input
-                    type="password"
-                    id="password"
-                    name="password"
-                    required
-                    autocomplete="current-password"
-                    spellcheck="false">
-
-                <button type="submit" class="btn-primary" id="login-submit">Sign In</button>
-
-                <p class="login-error" id="login-error" role="alert" aria-live="polite"></p>
-            </form>
-        </section>
-    </main>
+<body class="auth-body">
+    <div class="auth-card">
+        <h2>Admin Dashboard</h2>
+        <p>Enter your password to access the radar.</p>
+        <form id="login-form">
+            <input type="password" id="password" placeholder="Password" required autocomplete="current-password">
+            <button type="submit">Login</button>
+            <div id="error-msg" class="error-text"></div>
+        </form>
+    </div>
 
     <script>
-        (function () {
-            "use strict";
-            const form    = document.getElementById("login-form");
-            const errEl   = document.getElementById("login-error");
-            const submit  = document.getElementById("login-submit");
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const password = document.getElementById('password').value;
+            const errorMsg = document.getElementById('error-msg');
+            errorMsg.innerText = '';
 
-            form.addEventListener("submit", async function (e) {
-                e.preventDefault();
-                errEl.textContent = "";
-                const pw = document.getElementById("password").value;
-                if (!pw) { errEl.textContent = "Password is required."; return; }
-
-                submit.disabled = true;
-                submit.textContent = "Signing in...";
-
-                try {
-                    const res  = await fetch("/api/admin/auth", {
-                        method:      "POST",
-                        headers:     { "Content-Type": "application/json" },
-                        credentials: "same-origin",
-                        body:        JSON.stringify({ password: pw })
-                    });
-                    const data = await res.json().catch(() => ({}));
-                    if (res.ok && data.success) {
-                        window.location.href = "/admin/dashboard.html";
-                        return;
-                    }
-                    errEl.textContent = "Invalid password.";
-                } catch (_) {
-                    errEl.textContent = "Network error. Please retry.";
-                } finally {
-                    submit.disabled = false;
-                    submit.textContent = "Sign In";
+            try {
+                const res = await fetch('/api/admin/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                
+                if (res.ok) {
+                    window.location.href = '/admin/dashboard.html';
+                } else {
+                    errorMsg.innerText = 'Invalid password.';
                 }
-            });
-        })();
+            } catch (err) {
+                errorMsg.innerText = 'Network error.';
+            }
+        });
     </script>
 </body>
 </html>

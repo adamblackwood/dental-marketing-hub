@@ -1,142 +1,124 @@
 // functions/api/admin/raw-data.js
-// GET    /api/admin/raw-data?table=T&page=N        — Paginated list (limit 20)
-// PATCH  /api/admin/raw-data?table=T&id=ROW_ID     — Update a row
-// DELETE /api/admin/raw-data?table=T&id=ROW_ID     — Delete a row
+import { SUPABASE_URL, SUPABASE_ANON_KEY, ADMIN_PASSWORD } from '../config.js';
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { isAuthenticated, unauthorizedResponse } from "./auth.js";
-
-const SB_HEADERS = {
-    "apikey":        SUPABASE_ANON_KEY,
-    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-    "Content-Type":  "application/json"
+const checkAuth = (request) => {
+  const cookie = request.headers.get('Cookie') || '';
+  return cookie.includes(`admin_session=${ADMIN_PASSWORD}`);
 };
 
-const PAGE_SIZE = 20;
-
-// Whitelist of allowed tables and their primary keys.
-const TABLES = {
-    visitor_profiles: { pk: "uid",               orderBy: "last_seen_at.desc" },
-    acquisitions:     { pk: "acquisition_id",    orderBy: "first_visit_at.desc" },
-    visits:           { pk: "visit_id",          orderBy: "started_at.desc" },
-    sessions:         { pk: "session_id",        orderBy: "started_at.desc" },
-    visit_journeys:   { pk: "visit_id",          orderBy: null },
-    events:           { pk: "event_id",          orderBy: "created_at.desc" },
-    email_activities: { pk: "email_activity_id", orderBy: "created_at.desc" }
+const TABLE_MAP = {
+  'visitor_profiles': 'uid',
+  'acquisitions': 'acquisition_id',
+  'visits': 'visit_id',
+  'sessions': 'session_id',
+  'visit_journeys': 'visit_id',
+  'events': 'event_id',
+  'email_activities': 'email_activity_id'
 };
-
-function badRequest(msg, status = 400) {
-    return new Response(JSON.stringify({ error: msg }), {
-        status,
-        headers: { "Content-Type": "application/json" }
-    });
-}
-
-function validateTable(table) {
-    return TABLES[table] || null;
-}
 
 export async function onRequestGet(context) {
-    if (!isAuthenticated(context.request)) return unauthorizedResponse();
+  if (!checkAuth(context.request)) return new Response('Unauthorized', { status: 401 });
 
-    const url   = new URL(context.request.url);
-    const table = url.searchParams.get("table");
-    const page  = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-    const meta  = validateTable(table);
-    if (!meta) return badRequest("invalid table");
+  const url = new URL(context.request.url);
+  const table = url.searchParams.get('table');
+  const page = parseInt(url.searchParams.get('page') || '1', 10);
 
-    const from = (page - 1) * PAGE_SIZE;
-    const to   = from + PAGE_SIZE - 1;
+  if (!table || !TABLE_MAP[table]) {
+    return new Response(JSON.stringify({ error: 'Invalid table name' }), { status: 400 });
+  }
 
-    const params = ["select=*"];
-    if (meta.orderBy) params.push(`order=${meta.orderBy}`);
-    const path = `${table}?${params.join("&")}`;
+  const limit = 20;
+  const start = (page - 1) * limit;
+  const end = start + limit - 1;
 
-    try {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-            headers: {
-              ...SB_HEADERS,
-                "Prefer": "count=exact",
-                "Range":        `${from}-${to}`,
-                "Range-Unit":   "items"
-            }
-        });
-        if (!res.ok) return badRequest("supabase_error", 500);
-        const data  = await res.json();
-        const range = res.headers.get("Content-Range") || res.headers.get("content-range") || "";
-        const total = range.split("/")[1];
-        const totalItems = total ? Number(total) : (Array.isArray(data) ? data.length : 0);
-        const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+  const headers = {
+    'apikey': SUPABASE_ANON_KEY,
+    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    'Prefer': 'count=exact',
+    'Range': `${start}-${end}`
+  };
 
-        return new Response(JSON.stringify({
-            data,
-            pagination: { totalItems, currentPage: page, totalPages, pageSize: PAGE_SIZE }
-        }), {
-            status:  200,
-            headers: { "Content-Type": "application/json" }
-        });
-    } catch (err) {
-        return badRequest(String(err && err.message || err), 500);
-    }
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?order=${TABLE_MAP[table]}.desc`, { headers });
+    const data = await res.json();
+    const contentRange = res.headers.get('content-range') || `0-0/0`;
+    const totalItems = parseInt(contentRange.split('/')[1] || '0', 10);
+    const totalPages = Math.ceil(totalItems / limit);
+
+    return new Response(JSON.stringify({
+      data,
+      pagination: {
+        totalItems,
+        currentPage: page,
+        totalPages
+      }
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+  }
 }
 
 export async function onRequestPatch(context) {
-    if (!isAuthenticated(context.request)) return unauthorizedResponse();
+  if (!checkAuth(context.request)) return new Response('Unauthorized', { status: 401 });
 
-    const url   = new URL(context.request.url);
-    const table = url.searchParams.get("table");
-    const id    = url.searchParams.get("id");
-    const meta  = validateTable(table);
-    if (!meta) return badRequest("invalid table");
-    if (!id)   return badRequest("id required");
+  const url = new URL(context.request.url);
+  const table = url.searchParams.get('table');
+  const id = url.searchParams.get('id');
 
-    let body;
-    try { body = await context.request.json(); }
-    catch { return badRequest("invalid json body"); }
+  if (!table || !TABLE_MAP[table] || !id) {
+    return new Response(JSON.stringify({ error: 'Missing table or id' }), { status: 400 });
+  }
 
-    // Strip PK from body.
-    if (body && typeof body === "object") delete body[meta.pk];
+  try {
+    const body = await context.request.json();
+    const pk = TABLE_MAP[table];
+    
+    // Remove primary key from body before updating
+    delete body[pk];
 
-    try {
-        const filter = `${meta.pk}=eq.${encodeURIComponent(id)}`;
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
-            method:  "PATCH",
-            headers: {...SB_HEADERS, "Prefer": "return=representation" },
-            body:    JSON.stringify(body)
-        });
-        if (!res.ok) return badRequest("supabase_error", 500);
-        const data = await res.json();
-        return new Response(JSON.stringify({ success: true, data }), {
-            status:  200,
-            headers: { "Content-Type": "application/json" }
-        });
-    } catch (err) {
-        return badRequest(String(err && err.message || err), 500);
-    }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${pk}=eq.${id}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+
+    const data = await res.json();
+    return new Response(JSON.stringify({ success: true, data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+  }
 }
 
 export async function onRequestDelete(context) {
-    if (!isAuthenticated(context.request)) return unauthorizedResponse();
+  if (!checkAuth(context.request)) return new Response('Unauthorized', { status: 401 });
 
-    const url   = new URL(context.request.url);
-    const table = url.searchParams.get("table");
-    const id    = url.searchParams.get("id");
-    const meta  = validateTable(table);
-    if (!meta) return badRequest("invalid table");
-    if (!id)   return badRequest("id required");
+  const url = new URL(context.request.url);
+  const table = url.searchParams.get('table');
+  const id = url.searchParams.get('id');
 
-    try {
-        const filter = `${meta.pk}=eq.${encodeURIComponent(id)}`;
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
-            method:  "DELETE",
-            headers: {...SB_HEADERS, "Prefer": "return=minimal" }
-        });
-        if (!res.ok) return badRequest("supabase_error", 500);
-        return new Response(JSON.stringify({ success: true }), {
-            status:  200,
-            headers: { "Content-Type": "application/json" }
-        });
-    } catch (err) {
-        return badRequest(String(err && err.message || err), 500);
-    }
+  if (!table || !TABLE_MAP[table] || !id) {
+    return new Response(JSON.stringify({ error: 'Missing table or id' }), { status: 400 });
+  }
+
+  try {
+    const pk = TABLE_MAP[table];
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${pk}=eq.${id}`, {
+      method: 'DELETE',
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+      }
+    });
+
+    return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+  }
 }

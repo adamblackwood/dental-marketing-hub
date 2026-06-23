@@ -1,60 +1,50 @@
 // functions/api/admin/journey.js
-// GET /api/admin/journey?uid=XXX — 360° unified visitor view.
+import { SUPABASE_URL, SUPABASE_ANON_KEY, ADMIN_PASSWORD } from '../config.js';
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { isAuthenticated, unauthorizedResponse } from "./auth.js";
-
-const SB_HEADERS = {
-    "apikey":        SUPABASE_ANON_KEY,
-    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-    "Content-Type":  "application/json"
+const checkAuth = (request) => {
+  const cookie = request.headers.get('Cookie') || '';
+  return cookie.includes(`admin_session=${ADMIN_PASSWORD}`);
 };
 
-async function sbGet(path) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: SB_HEADERS });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
-}
-
 export async function onRequestGet(context) {
-    if (!isAuthenticated(context.request)) return unauthorizedResponse();
+  if (!checkAuth(context.request)) return new Response('Unauthorized', { status: 401 });
 
-    const url = new URL(context.request.url);
-    const uid = url.searchParams.get("uid");
-    if (!uid) {
-        return new Response(JSON.stringify({ error: "uid required" }), {
-            status:  400,
-            headers: { "Content-Type": "application/json" }
-        });
-    }
+  const url = new URL(context.request.url);
+  const uid = url.searchParams.get('uid');
+  if (!uid) return new Response(JSON.stringify({ error: 'Missing uid' }), { status: 400 });
 
-    const u = encodeURIComponent(uid);
-    try {
-        const [profileArr, acquisitions, visits, journeys, events, emailActivities] = await Promise.all([
-            sbGet(`visitor_profiles?uid=eq.${u}&select=*`),
-            sbGet(`acquisitions?uid=eq.${u}&select=*&order=touch_order.asc`),
-            sbGet(`visits?uid=eq.${u}&select=*&order=started_at.desc`),
-            sbGet(`visit_journeys?uid=eq.${u}&select=*`),
-            sbGet(`events?uid=eq.${u}&select=*&order=created_at.desc`),
-            sbGet(`email_activities?uid=eq.${u}&select=*&order=created_at.desc`)
-        ]);
+  const headers = {
+    'apikey': SUPABASE_ANON_KEY,
+    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+  };
 
-        return new Response(JSON.stringify({
-            visitor_profile:  profileArr[0] || null,
-            acquisitions,
-            visits,
-            visit_journeys:   journeys,
-            events,
-            email_activities: emailActivities
-        }), {
-            status:  200,
-            headers: { "Content-Type": "application/json" }
-        });
-    } catch (err) {
-        return new Response(JSON.stringify({ error: String(err && err.message || err) }), {
-            status:  500,
-            headers: { "Content-Type": "application/json" }
-        });
-    }
+  try {
+    const [profileRes, acqRes, visitsRes, journeysRes, eventsRes, emailRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=*`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/acquisitions?uid=eq.${uid}&select=*`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/visits?uid=eq.${uid}&select=*&order=started_at.desc`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/visit_journeys?uid=eq.${uid}&select=*`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/events?uid=eq.${uid}&select=*&order=created_at.desc`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&select=*`, { headers })
+    ]);
+
+    const profile = await profileRes.json();
+    const acquisitions = await acqRes.json();
+    const visits = await visitsRes.json();
+    const journeys = await journeysRes.json();
+    const events = await eventsRes.json();
+    const email_activities = await emailRes.json();
+
+    return new Response(JSON.stringify({
+      profile: profile[0] || null,
+      acquisitions,
+      visits,
+      journeys,
+      events,
+      email_activities
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+  }
 }

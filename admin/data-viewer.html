@@ -4,201 +4,159 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="robots" content="noindex, nofollow">
-    <title>Raw Data Viewer — DMRH Adminitle>
+    <title>Raw Data Viewer - Dental Hub V4</title>
     <link rel="stylesheet" href="/assets/css/dashboard.css">
+    <style>
+        .raw-table td, .raw-table th { font-size: 0.8rem; word-break: break-all; }
+        .raw-tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+        .raw-tab { padding: 0.5rem 0.8rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+        .raw-tab.active { background: var(--accent); color: var(--bg-main); border-color: var(--accent); }
+    </style>
 </head>
 <body>
-
-    <nav class="top-nav">
-        <div class="logo">🦷 DMRH Admin</div>
+    <nav>
+        <div class="logo">Raw Data Viewer</div>
         <div class="nav-links">
-            <a href="/admin/dashboard.html">Dashboard</a>
-            <a href="/admin/data-viewer.html" class="active">Raw Data Viewer</a>
-            <button type="button" class="btn-ghost" id="logout-btn">Logout</button>
+            <a href="/admin/dashboard.html">Back to Dashboard</a>
+            <a href="#" id="logout-btn">Logout</a>
         </div>
     </nav>
 
-    <main class="shell">
-        <section class="section">
-            <h2 class="section-title">Raw Data Viewer</h2>
+    <div class="container">
+        <div class="raw-tabs" id="raw-tabs">
+            <div class="raw-tab active" data-table="visitor_profiles">visitor_profiles</div>
+            <div class="raw-tab" data-table="acquisitions">acquisitions</div>
+            <div class="raw-tab" data-table="visits">visits</div>
+            <div class="raw-tab" data-table="sessions">sessions</div>
+            <div class="raw-tab" data-table="visit_journeys">visit_journeys</div>
+            <div class="raw-tab" data-table="events">events</div>
+            <div class="raw-tab" data-table="email_activities">email_activities</div>
+        </div>
 
-            <div class="tabs" id="rd-tabs">
-                <button class="tab active" data-table="visitor_profiles">visitor_profiles</button>
-                <button class="tab"        data-table="acquisitions">acquisitions</button>
-                <button class="tab"        data-table="visits">visits</button>
-                <button class="tab"        data-table="sessions">sessions</button>
-                <button class="tab"        data-table="visit_journeys">visit_journeys</button>
-                <button class="tab"        data-table="events">events</button>
-                <button class="tab"        data-table="email_activities">email_activities</button>
-            </div>
+        <table class="data-table raw-table">
+            <thead id="raw-head"></thead>
+            <tbody id="raw-body"></tbody>
+        </table>
 
-            <div class="table-wrap">
-                <div class="table-scroll">
-                    <table class="data-table" id="rd-table">
-                        <thead id="rd-thead">head>
-                        <tbody id="rd-tbody">
-                            <tr><td class="loading">Loading...d>r>
-                        body>
-                    able>
-                </div>
-                <div class="pagination">
-                    <div class="info" id="rd-info">—</div>
-                    <div class="controls">
-                        <button class="btn-secondary btn-small" id="rd-prev">← Prev</button>
-                        <button class="btn-secondary btn-small" id="rd-next">Next →</button>
-                    </div>
-                </div>
-            </div>
-        </section>
-    </main>
+        <div class="pagination">
+            <button id="prev-btn">Previous</button>
+            <span id="page-info" style="color: var(--text-muted); align-self: center;">Page 1 of 1</span>
+            <button id="next-btn">Next</button>
+        </div>
+    </div>
 
     <script>
-    (function () {
-        "use strict";
+        let currentTable = 'visitor_profiles';
+        let currentPage = 1;
+        let totalPages = 1;
 
-        const STATE = { table: "visitor_profiles", page: 1, totalPages: 1, pks: {} };
-
-        // PK map mirrors the server whitelist.
-        const PK_MAP = {
-            visitor_profiles: "uid",
-            acquisitions:     "acquisition_id",
-            visits:           "visit_id",
-            sessions:         "session_id",
-            visit_journeys:   "visit_id",
-            events:           "event_id",
-            email_activities: "email_activity_id"
-        };
-
-        function el(id) { return document.getElementById(id); }
-        function escapeHtml(s) {
-            if (s === null || s === undefined) return "";
-            return String(s)
-                .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-        }
-        function renderCell(v) {
-            if (v === null || v === undefined) return "—";
-            if (typeof v === "object") return `<code>${escapeHtml(JSON.stringify(v))}</code>`;
-            if (typeof v === "boolean") return v ? "✓" : "✗";
-            const s = String(v);
-            return s.length > 80 ? escapeHtml(s.slice(0, 80)) + "…" : escapeHtml(s);
-        }
-
-        async function ensureAuth() {
+        window.addEventListener('DOMContentLoaded', async () => {
+            // Auth Check
             try {
-                const res = await fetch("/api/admin/auth", { credentials: "same-origin" });
-                if (res.status === 401) { window.location.href = "/admin/login.html"; return false; }
-                return true;
-            } catch (_) { window.location.href = "/admin/login.html"; return false; }
-        }
+                const res = await fetch('/api/admin/auth');
+                if (!res.ok) return window.location.href = '/admin/login.html';
+            } catch (err) {
+                return window.location.href = '/admin/login.html';
+            }
 
-        async function loadPage() {
-            el("rd-tbody").innerHTML = `<tr><td class="loading">Loading...d>r>`;
-            el("rd-thead").innerHTML = "";
+            document.getElementById('logout-btn').addEventListener('click', async (e) => {
+                e.preventDefault();
+                await fetch('/api/admin/auth', { method: 'DELETE' });
+                window.location.href = '/admin/login.html';
+            });
+
+            // Tab Switching
+            document.querySelectorAll('.raw-tab').forEach(tab => {
+                tab.addEventListener('click', (e) => {
+                    document.querySelectorAll('.raw-tab').forEach(t => t.classList.remove('active'));
+                    e.target.classList.add('active');
+                    currentTable = e.target.getAttribute('data-table');
+                    currentPage = 1;
+                    fetchRawData();
+                });
+            });
+
+            // Pagination
+            document.getElementById('prev-btn').addEventListener('click', () => {
+                if (currentPage > 1) { currentPage--; fetchRawData(); }
+            });
+            document.getElementById('next-btn').addEventListener('click', () => {
+                if (currentPage < totalPages) { currentPage++; fetchRawData(); }
+            });
+
+            // Event Delegation for Delete
+            document.getElementById('raw-body').addEventListener('click', async (e) => {
+                const target = e.target.closest('button');
+                if (!target) return;
+                const id = target.getAttribute('data-id');
+                if (confirm('Delete this row permanently?')) {
+                    await fetch(`/api/admin/raw-data?table=${currentTable}&id=${id}`, { method: 'DELETE' });
+                    fetchRawData();
+                }
+            });
+
+            fetchRawData();
+        });
+
+        async function fetchRawData() {
+            const thead = document.getElementById('raw-head');
+            const tbody = document.getElementById('raw-body');
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;">Loading...</td></tr>`;
+
             try {
-                const res = await fetch(
-                    `/api/admin/raw-data?table=${encodeURIComponent(STATE.table)}&page=${STATE.page}`,
-                    { credentials: "same-origin" }
-                );
-                if (res.status === 401) { window.location.href = "/admin/login.html"; return; }
-                if (!res.ok) {
-                    el("rd-tbody").innerHTML = `<tr><td class="empty-state">Failed to load.d>r>`;
+                const res = await fetch(`/api/admin/raw-data?table=${currentTable}&page=${currentPage}`);
+                const result = await res.json();
+                
+                const data = result.data;
+                const pagination = result.pagination;
+
+                currentPage = pagination.currentPage;
+                totalPages = pagination.totalPages;
+                document.getElementById('page-info').innerText = `Page ${currentPage} of ${totalPages} (${pagination.totalItems} items)`;
+                document.getElementById('prev-btn').disabled = currentPage <= 1;
+                document.getElementById('next-btn').disabled = currentPage >= totalPages;
+
+                if (data.length === 0) {
+                    thead.innerHTML = '';
+                    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;">No data.</td></tr>`;
                     return;
                 }
-                const payload = await res.json();
-                const rows    = Array.isArray(payload.data) ? payload.data : [];
-                const pg      = payload.pagination || { totalItems: rows.length, currentPage: 1, totalPages: 1 };
-                STATE.totalPages = pg.totalPages || 1;
 
-                if (rows.length === 0) {
-                    el("rd-tbody").innerHTML = `<tr><td class="empty-state">No rows.d>r>`;
-                    el("rd-info").textContent = `0 items`;
-                    el("rd-prev").disabled = true;
-                    el("rd-next").disabled = true;
-                    return;
-                }
+                // Generate Headers dynamically
+                const keys = Object.keys(data[0]);
+                let headers = `<tr>`;
+                keys.forEach(k => headers += `<th>${k}</th>`);
+                headers += `<th>Actions</th></tr>`;
+                thead.innerHTML = headers;
 
-                // Build dynamic headers from first row's keys + Actions column.
-                const keys = Object.keys(rows[0]);
-                el("rd-thead").innerHTML =
-                    `<tr>${keys.map(k => `<th>${escapeHtml(k)}h>`).join("")}<th>Actionsh>r>`;
+                // Generate Rows
+                let rows = '';
+                data.forEach(row => {
+                    let pk = '';
+                    // Find PK to pass to delete button
+                    if (row.uid) pk = row.uid;
+                    else if (row.visit_id) pk = row.visit_id;
+                    else if (row.session_id) pk = row.session_id;
+                    else if (row.event_id) pk = row.event_id;
+                    else if (row.acquisition_id) pk = row.acquisition_id;
+                    else if (row.email_activity_id) pk = row.email_activity_id;
 
-                const pk = PK_MAP[STATE.table];
-                el("rd-tbody").innerHTML = rows.map(row => {
-                    const idVal = row[pk];
-                    const cells = keys.map(k => `<td>${renderCell(row[k])}d>`).join("");
-                    return `
-                        <tr>
-                            ${cells}
-                            <td class="cell-actions">
-                                <button class="btn-danger btn-small btn-rd-delete" data-id="${escapeHtml(idVal)}">Delete</button>
-                            d>
-                        r>`;
-                }).join("");
+                    rows += `<tr>`;
+                    keys.forEach(k => {
+                        let val = row[k];
+                        if (typeof val === 'object' && val !== null) val = JSON.stringify(val);
+                        if (typeof val === 'string' && val.length > 50) val = val.substring(0,50) + '...';
+                        rows += `<td>${val === null || val === undefined ? '<span style="color:var(--text-muted)">null</span>' : val}</td>`;
+                    });
+                    rows += `<td><button class="btn-action btn-delete" data-id="${pk}">Delete</button></td>`;
+                    rows += `</tr>`;
+                });
+                tbody.innerHTML = rows;
 
-                el("rd-info").textContent = `Page ${pg.currentPage} of ${pg.totalPages} · ${pg.totalItems} total`;
-                el("rd-prev").disabled = STATE.page <= 1;
-                el("rd-next").disabled = STATE.page >= STATE.totalPages;
-            } catch (_) {
-                el("rd-tbody").innerHTML = `<tr><td class="empty-state">Network error.d>r>`;
+            } catch (err) {
+                console.error('Raw data error:', err);
             }
         }
-
-        function bindTabs() {
-            el("rd-tabs").addEventListener("click", function (e) {
-                const btn = e.target.closest(".tab");
-                if (!btn) return;
-                document.querySelectorAll("#rd-tabs .tab").forEach(t => t.classList.remove("active"));
-                btn.classList.add("active");
-                STATE.table = btn.dataset.table;
-                STATE.page  = 1;
-                loadPage();
-            });
-        }
-
-        function bindPagination() {
-            el("rd-prev").addEventListener("click", () => {
-                if (STATE.page > 1) { STATE.page -= 1; loadPage(); }
-            });
-            el("rd-next").addEventListener("click", () => {
-                if (STATE.page < STATE.totalPages) { STATE.page += 1; loadPage(); }
-            });
-        }
-
-        function bindRowActions() {
-            el("rd-tbody").addEventListener("click", async function (e) {
-                const btn = e.target.closest(".btn-rd-delete");
-                if (!btn) return;
-                const id = btn.dataset.id;
-                if (!id) return;
-                if (!confirm(`Delete this row from ${STATE.table}? This cannot be undone.`)) return;
-                try {
-                    const url = `/api/admin/raw-data?table=${encodeURIComponent(STATE.table)}&id=${encodeURIComponent(id)}`;
-                    const res = await fetch(url, { method: "DELETE", credentials: "same-origin" });
-                    if (res.ok) loadPage();
-                    else        alert("Delete failed.");
-                } catch (_) { alert("Network error."); }
-            });
-        }
-
-        function bindLogout() {
-            el("logout-btn").addEventListener("click", async function () {
-                try { await fetch("/api/admin/auth", { method: "DELETE", credentials: "same-origin" }); } catch (_) {}
-                window.location.href = "/admin/login.html";
-            });
-        }
-
-        (async function boot() {
-            const ok = await ensureAuth();
-            if (!ok) return;
-            bindTabs();
-            bindPagination();
-            bindRowActions();
-            bindLogout();
-            loadPage();
-        })();
-    })();
     </script>
 </body>
 </html>

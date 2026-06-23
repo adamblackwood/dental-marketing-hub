@@ -1,34 +1,28 @@
 // functions/api/p/[uid].js
-// GET /api/p/UID  — Cold email link click → mark entered_site, redirect to home.
-
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-
-const SB_HEADERS = {
-    "apikey":         SUPABASE_ANON_KEY,
-    "Authorization":  `Bearer ${SUPABASE_ANON_KEY}`,
-    "Content-Type":   "application/json"
-};
-
-async function markEnteredSite(uid) {
-    try {
-        await fetch(
-            `${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${encodeURIComponent(uid)}`,
-            {
-                method:  "PATCH",
-                headers: {...SB_HEADERS, "Prefer": "return=minimal" },
-                body:    JSON.stringify({ entered_site: true })
-            }
-        );
-    } catch (_) { /* swallow */ }
-}
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../config.js';
 
 export async function onRequestGet(context) {
+  try {
     const uid = context.params.uid;
-    const url = new URL(context.request.url);
+    if (!uid) return new Response('No UID', { status: 400 });
 
-    context.waitUntil(markEnteredSite(uid));
+    // Update entered_site = true
+    context.waitUntil(
+      fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ entered_site: true })
+      })
+    );
 
-    const origin = `${url.protocol}//${url.host}`;
-    const target = `${origin}/?identified=${encodeURIComponent(uid)}`;
-    return Response.redirect(target, 302);
+    // Redirect to homepage with identified UID
+    return Response.redirect(`/?identified=${uid}`, 302);
+
+  } catch (err) {
+    return new Response('Error', { status: 500 });
+  }
 }

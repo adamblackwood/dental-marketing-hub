@@ -4,89 +4,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="robots" content="noindex, nofollow">
-    <title>Admin Dashboard — Dental Marketing Hubitle>
+    <title>Dashboard - Dental Hub V4</title>
     <link rel="stylesheet" href="/assets/css/dashboard.css">
 </head>
 <body>
-
-    <nav class="top-nav">
-        <div class="logo">🦷 DMRH Admin</div>
+    <nav>
+        <div class="logo">Dental Radar V4</div>
         <div class="nav-links">
-            <a href="/admin/dashboard.html"   class="active">Dashboard</a>
             <a href="/admin/data-viewer.html">Raw Data Viewer</a>
-            <button type="button" class="btn-ghost" id="logout-btn">Logout</button>
+            <a href="#" id="logout-btn">Logout</a>
         </div>
     </nav>
 
-    <main class="shell">
+    <div class="container">
+        <!-- KPI Section -->
+        <div class="kpi-grid">
+            <div class="kpi-card"><h3>Total Visitors</h3><div class="value" id="kpi-visitors">0</div></div>
+            <div class="kpi-card"><h3>Hot Leads</h3><div class="value" id="kpi-hot">0</div></div>
+            <div class="kpi-card"><h3>Total Visits</h3><div class="value" id="kpi-visits">0</div></div>
+            <div class="kpi-card"><h3>Conversions</h3><div class="value" id="kpi-conversions">0</div></div>
+        </div>
 
-        <!-- KPI SECTION -->
-        <section class="section">
-            <h2 class="section-title">Overview</h2>
-            <div class="kpi-grid" id="kpi-grid">
-                <div class="kpi-card">
-                    <div class="label">Total Visitors</div>
-                    <div class="value" id="kpi-visitors">—</div>
-                    <div class="icon">👥</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="label">Hot Leads</div>
-                    <div class="value" id="kpi-hot">—</div>
-                    <div class="icon">🔥</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="label">Total Visits</div>
-                    <div class="value" id="kpi-visits">—</div>
-                    <div class="icon">📊</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="label">Conversions</div>
-                    <div class="value" id="kpi-conversions">—</div>
-                    <div class="icon">💰</div>
-                </div>
-            </div>
-        </section>
+        <!-- Table Section -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="visitors">Visitors</button>
+            <button class="tab-btn" data-tab="sessions">Sessions</button>
+            <button class="tab-btn" data-tab="events">Events</button>
+        </div>
 
-        <!-- TABLE SECTION -->
-        <section class="section">
-            <div class="flex-row" style="margin-bottom: 14px;">
-                <h2 class="section-title" style="margin: 0;">Data Explorer</h2>
-                <div class="spacer"></div>
-                <input type="text" id="search-input" class="search-input" placeholder="Search current tab...">
-                <button class="btn-secondary btn-small" id="refresh-btn">Refresh</button>
-            </div>
+        <table class="data-table">
+            <thead id="table-head"></thead>
+            <tbody id="table-body"></tbody>
+        </table>
+    </div>
 
-            <div class="tabs" id="tabs">
-                <button class="tab active" data-tab="visitors">Visitors</button>
-                <button class="tab"        data-tab="sessions">Sessions</button>
-                <button class="tab"        data-tab="events">Events</button>
-            </div>
-
-            <div class="table-wrap">
-                <div class="table-scroll">
-                    <table class="data-table" id="main-table">
-                        <thead id="main-thead">head>
-                        <tbody id="main-tbody">
-                            <tr><td class="loading">Loading...d>r>
-                        body>
-                    able>
-                </div>
-            </div>
-        </section>
-
-    </main>
-
-    <!-- 360 JOURNEY MODAL -->
-    <div class="modal-overlay" id="journey-modal" role="dialog" aria-modal="true" aria-labelledby="journey-title">
-        <div class="modal">
-            <div class="modal-header">
-                <h2 id="journey-title">360° Visitor Journey</h2>
-                <button class="modal-close" id="journey-close" aria-label="Close">&times;</button>
-            </div>
-            <div class="modal-body" id="journey-body">
-                <div class="loading">Loading...</div>
-            </div>
+    <!-- 360 Journey Modal -->
+    <div class="modal-overlay" id="journey-modal">
+        <div class="modal-content">
+            <button class="modal-close" id="modal-close">&times;</button>
+            <h2>360° Visitor Journey</h2>
+            <div id="journey-content">Loading...</div>
         </div>
     </div>
 
