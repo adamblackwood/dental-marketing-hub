@@ -15,7 +15,6 @@ const sbFetch = (path, method, body, prefer) => {
   });
 };
 
-// Helper: Micro-Scoring System
 const updateLeadScore = async (uid, scoreToAdd) => {
   const profRes = await sbFetch(`visitor_profiles?uid=eq.${uid}&select=lead_score,lead_status`, 'GET');
   const profData = await profRes.json();
@@ -54,21 +53,17 @@ export async function onRequestPost(context) {
       const checkSessData = await checkSessRes.json();
       
       if (checkSessData.length > 0) {
-        // Session exists (User navigated to a new HTML page or refreshed)
         const visitId = checkSessData[0].visit_id;
         await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', { last_activity_at: now });
         
-        // Check if URL is different from the last one in journey to avoid bloat on refresh
         const journeyRes = await sbFetch(`visit_journeys?visit_id=eq.${visitId}&select=journey`, 'GET');
         const journeyData = await journeyRes.json();
         const currentJourney = journeyData[0].journey;
         
-        if (currentJourney[currentJourney.length - 1] !== data.landing_page) {
-          // It's a genuine page navigation, not a refresh
-          currentJourney.push(data.landing_page);
+        // Check if URL is different from the last one
+        if (currentJourney[currentJourney.length - 1].p !== data.landing_page) {
+          currentJourney.push({ p: data.landing_page, s: 0 });
           await sbFetch(`visit_journeys?visit_id=eq.${visitId}`, 'PATCH', { journey: currentJourney });
-          
-          // Micro-Scoring for page view (+2)
           await updateLeadScore(uid, 2);
 
           const visitRes = await sbFetch(`visits?visit_id=eq.${visitId}&select=pages_viewed`, 'GET');
@@ -82,11 +77,7 @@ export async function onRequestPost(context) {
         return new Response(JSON.stringify({ success: true, visit_id: visitId }), { status: 200 });
       }
 
-      // It's a completely new session. Upsert visitor_profiles
-      await sbFetch('visitor_profiles', 'POST', {
-        uid,
-        last_seen_at: now
-      }, 'resolution=merge-duplicates');
+      await sbFetch('visitor_profiles', 'POST', { uid, last_seen_at: now }, 'resolution=merge-duplicates');
 
       const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
       const sessRes = await sbFetch(`sessions?uid=eq.${uid}&order=last_activity_at.desc&limit=1&select=last_activity_at,visit_id`, 'GET');
@@ -105,62 +96,49 @@ export async function onRequestPost(context) {
 
       if (isNewVisit) {
         const visitRes = await sbFetch('visits', 'POST', {
-          uid,
-          entry_page: data.landing_page,
-          exit_page: data.landing_page,
-          started_at: now,
-          is_bounce: true
+          uid, entry_page: data.landing_page, exit_page: data.landing_page, started_at: now, is_bounce: true
         }, 'return=representation');
         const visitData = await visitRes.json();
         visitId = visitData[0].visit_id;
 
         await sbFetch('visit_journeys', 'POST', {
-          visit_id: visitId,
-          uid,
-          journey: [data.landing_page]
+          visit_id: visitId, uid, journey: [{ p: data.landing_page, s: 0 }]
         });
 
         const profRes = await sbFetch(`visitor_profiles?uid=eq.${uid}&select=total_visits`, 'GET');
         const profData = await profRes.json();
         const totalVisits = profData.length > 0 ? profData[0].total_visits + 1 : 1;
-        await sbFetch(`visitor_profiles?uid=eq.${uid}`, 'PATCH', { total_visits: totalVisits });
+        await sbFetch(`visitor_profiles?uid=eq.${uid}`, 'PATCH', { total_visits: total_visits });
 
       } else {
-        // Active visit exists within 30 mins - Append to journey if new URL
         const journeyRes = await sbFetch(`visit_journeys?visit_id=eq.${visitId}&select=journey`, 'GET');
         const journeyData = await journeyRes.json();
         const currentJourney = journeyData[0].journey;
         
-        if (currentJourney[currentJourney.length - 1] !== data.landing_page) {
-          currentJourney.push(data.landing_page);
+        if (currentJourney[currentJourney.length - 1].p !== data.landing_page) {
+          currentJourney.push({ p: data.landing_page, s: 0 });
           await sbFetch(`visit_journeys?visit_id=eq.${visitId}`, 'PATCH', { journey: currentJourney });
-          await updateLeadScore(uid, 2); // +2 for new page
+          await updateLeadScore(uid, 2);
 
           const visitRes = await sbFetch(`visits?visit_id=eq.${visitId}&select=pages_viewed`, 'GET');
           const visitData = await visitRes.json();
           const pagesViewed = visitData[0].pages_viewed + 1;
           await sbFetch(`visits?visit_id=eq.${visitId}`, 'PATCH', {
-            exit_page: data.landing_page,
-            pages_viewed: pagesViewed
+            exit_page: data.landing_page, pages_viewed: pagesViewed
           });
         }
       }
 
-      // Insert new session
       await sbFetch('sessions', 'POST', {
-        session_id: session_id,
-        visit_id: visitId,
-        uid,
-        device_type: data.device_type || 'unknown',
-        started_at: now,
-        last_activity_at: now
+        session_id: session_id, visit_id: visitId, uid, device_type: data.device_type || 'unknown',
+        started_at: now, last_activity_at: now
       });
 
       return new Response(JSON.stringify({ success: true, visit_id: visitId }), { status: 200 });
     }
 
     // ------------------------------------------------------------------
-    // 2. PAGE_CHANGE (For SPA pushState navigations)
+    // 2. PAGE_CHANGE
     // ------------------------------------------------------------------
     if (event_type === 'page_change') {
       const visitId = await getVisitIdFromSession(session_id);
@@ -172,17 +150,16 @@ export async function onRequestPost(context) {
       const journeyData = await journeyRes.json();
       const currentJourney = journeyData[0].journey;
       
-      if (currentJourney[currentJourney.length - 1] !== data.page) {
-        currentJourney.push(data.page);
+      if (currentJourney[currentJourney.length - 1].p !== data.page) {
+        currentJourney.push({ p: data.page, s: 0 });
         await sbFetch(`visit_journeys?visit_id=eq.${visitId}`, 'PATCH', { journey: currentJourney });
-        await updateLeadScore(uid, 2); // Micro-Scoring +2
+        await updateLeadScore(uid, 2);
 
         const visitRes = await sbFetch(`visits?visit_id=eq.${visitId}&select=pages_viewed`, 'GET');
         const visitData = await visitRes.json();
         const pagesViewed = visitData[0].pages_viewed + 1;
         await sbFetch(`visits?visit_id=eq.${visitId}`, 'PATCH', {
-          exit_page: data.page,
-          pages_viewed: pagesViewed
+          exit_page: data.page, pages_viewed: pagesViewed
         });
       }
 
@@ -196,17 +173,12 @@ export async function onRequestPost(context) {
       const visitId = await getVisitIdFromSession(session_id);
       if (!visitId) return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404 });
 
-      // FIX: Removed max_scroll_pct from here to prevent overwriting the session's highest scroll
       await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', {
-        ended_at: now,
-        duration_sec: data.duration_sec
+        ended_at: now, duration_sec: data.duration_sec
       });
 
       await sbFetch(`visits?visit_id=eq.${visitId}`, 'PATCH', {
-        ended_at: now,
-        duration_sec: data.duration_sec,
-        is_bounce: false,
-        exit_page: data.page
+        ended_at: now, duration_sec: data.duration_sec, is_bounce: false, exit_page: data.page
       });
 
       return new Response(JSON.stringify({ success: true }), { status: 200 });
@@ -221,7 +193,7 @@ export async function onRequestPost(context) {
     }
 
     // ------------------------------------------------------------------
-    // 5. SCROLL (Micro-Scoring at 50% and 100%)
+    // 5. SCROLL (Update specific page object in JSONB)
     // ------------------------------------------------------------------
     if (event_type === 'scroll') {
       const sessRes = await sbFetch(`sessions?session_id=eq.${session_id}&select=max_scroll_pct`, 'GET');
@@ -229,10 +201,25 @@ export async function onRequestPost(context) {
       
       if (sessData.length > 0 && data.scroll > sessData[0].max_scroll_pct) {
         await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', { max_scroll_pct: data.scroll });
-        
-        // Award points only the first time they hit 50% and 100%
         if (data.scroll === 50 || data.scroll === 100) {
-          await updateLeadScore(uid, 2); // Micro-Scoring +2
+          await updateLeadScore(uid, 2);
+        }
+      }
+
+      // Update the scroll value for the current page in the journey array
+      const visitId = await getVisitIdFromSession(session_id);
+      if (visitId) {
+        const journeyRes = await sbFetch(`visit_journeys?visit_id=eq.${visitId}&select=journey`, 'GET');
+        const journeyData = await journeyRes.json();
+        if (journeyData.length > 0) {
+          const currentJourney = journeyData[0].journey;
+          if (currentJourney.length > 0) {
+            let lastItem = currentJourney[currentJourney.length - 1];
+            if (data.scroll > lastItem.s) {
+              lastItem.s = data.scroll;
+              await sbFetch(`visit_journeys?visit_id=eq.${visitId}`, 'PATCH', { journey: currentJourney });
+            }
+          }
         }
       }
       return new Response(JSON.stringify({ success: true }), { status: 200 });
@@ -248,13 +235,8 @@ export async function onRequestPost(context) {
       const scoreToAdd = scoreMap[event_type];
 
       await sbFetch('events', 'POST', {
-        event_uuid: crypto.randomUUID(),
-        uid,
-        visit_id: visitId,
-        session_id: session_id,
-        event_type: event_type,
-        event_value: data.value || null,
-        created_at: now
+        event_uuid: crypto.randomUUID(), uid, visit_id: visitId, session_id: session_id,
+        event_type: event_type, event_value: data.value || null, created_at: now
       });
 
       const profRes = await sbFetch(`visitor_profiles?uid=eq.${uid}&select=lead_score,total_conversions`, 'GET');
@@ -263,15 +245,10 @@ export async function onRequestPost(context) {
         const newScore = profData[0].lead_score + scoreToAdd;
         const newConversions = profData[0].total_conversions + 1;
         const newStatus = newScore >= 70 ? 'hot' : (newScore >= 30 ? 'warm' : 'cold');
-        
         await sbFetch(`visitor_profiles?uid=eq.${uid}`, 'PATCH', {
-          lead_score: newScore,
-          total_conversions: newConversions,
-          lead_status: newStatus,
-          last_seen_at: now
+          lead_score: newScore, total_conversions: newConversions, lead_status: newStatus, last_seen_at: now
         });
       }
-
       return new Response(JSON.stringify({ success: true }), { status: 200 });
     }
 
