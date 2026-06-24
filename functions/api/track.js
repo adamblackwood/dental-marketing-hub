@@ -196,10 +196,10 @@ export async function onRequestPost(context) {
       const visitId = await getVisitIdFromSession(session_id);
       if (!visitId) return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404 });
 
+      // FIX: Removed max_scroll_pct from here to prevent overwriting the session's highest scroll
       await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', {
         ended_at: now,
-        duration_sec: data.duration_sec,
-        max_scroll_pct: data.max_scroll_pct
+        duration_sec: data.duration_sec
       });
 
       await sbFetch(`visits?visit_id=eq.${visitId}`, 'PATCH', {
