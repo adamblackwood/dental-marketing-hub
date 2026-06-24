@@ -1,0 +1,52 @@
+<!-- admin/dashboard.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Dental Hub V4</title>
+    <link rel="stylesheet" href="/assets/css/dashboard.css">
+</head>
+<body>
+    <nav>
+        <div class="logo">Dental Radar V4</div>
+        <div class="nav-links">
+            <a href="/admin/data-viewer.html">Raw Data Viewer</a>
+            <a href="#" id="logout-btn">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <!-- KPI Section -->
+        <div class="kpi-grid">
+            <div class="kpi-card"><h3>Total Visitors</h3><div class="value" id="kpi-visitors">0</div></div>
+            <div class="kpi-card"><h3>Hot Leads</h3><div class="value" id="kpi-hot">0</div></div>
+            <div class="kpi-card"><h3>Total Visits</h3><div class="value" id="kpi-visits">0</div></div>
+            <div class="kpi-card"><h3>Conversions</h3><div class="value" id="kpi-conversions">0</div></div>
+        </div>
+
+        <!-- Table Section -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="visitors">Visitors</button>
+            <button class="tab-btn" data-tab="sessions">Sessions</button>
+            <button class="tab-btn" data-tab="events">Events</button>
+        </div>
+
+        <table class="data-table">
+            <thead id="table-head"></thead>
+            <tbody id="table-body"></tbody>
+        </table>
+    </div>
+
+    <!-- 360 Journey Modal -->
+    <div class="modal-overlay" id="journey-modal">
+        <div class="modal-content">
+            <button class="modal-close" id="modal-close">&times;</button>
+            <h2>360° Visitor Journey</h2>
+            <div id="journey-content">Loading...</div>
+        </div>
+    </div>
+
+    <script src="/assets/js/dashboard.js"></script>
+</body>
+</html>

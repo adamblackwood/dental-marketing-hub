@@ -56,7 +56,12 @@ export async function onRequestPost(context) {
       if (checkSessData.length > 0) {
         // Session exists (User navigated to a new HTML page or refreshed)
         const visitId = checkSessData[0].visit_id;
-        await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', { last_activity_at: now });
+        
+        // REVIVE SESSION: Update activity and clear ended_at to prevent Zombie Sessions
+        await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', { 
+          last_activity_at: now,
+          ended_at: null 
+        });
         
         // Check if URL is different from the last one in journey to avoid bloat on refresh
         const journeyRes = await sbFetch(`visit_journeys?visit_id=eq.${visitId}&select=journey`, 'GET');
@@ -190,21 +195,40 @@ export async function onRequestPost(context) {
     }
 
     // ------------------------------------------------------------------
-    // 3. EXIT
+    // 3. EXIT (Fixed: Protect Max Scroll & Calculate Real Duration)
     // ------------------------------------------------------------------
     if (event_type === 'exit') {
       const visitId = await getVisitIdFromSession(session_id);
       if (!visitId) return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404 });
 
+      // Fetch current session data to preserve max_scroll_pct
+      const sessRes = await sbFetch(`sessions?session_id=eq.${session_id}&select=max_scroll_pct,started_at`, 'GET');
+      const sessData = await sessRes.json();
+      
+      let finalMaxScroll = data.max_scroll_pct || 0;
+      let finalDuration = data.duration_sec || 0;
+
+      if (sessData.length > 0) {
+        // Protect Scroll: Keep the highest historical value
+        if (sessData[0].max_scroll_pct > finalMaxScroll) {
+          finalMaxScroll = sessData[0].max_scroll_pct;
+        }
+        // Calculate accurate duration from DB started_at
+        if (sessData[0].started_at) {
+          const startTime = new Date(sessData[0].started_at).getTime();
+          finalDuration = Math.round((Date.now() - startTime) / 1000);
+        }
+      }
+
       await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', {
         ended_at: now,
-        duration_sec: data.duration_sec,
-        max_scroll_pct: data.max_scroll_pct
+        duration_sec: finalDuration,
+        max_scroll_pct: finalMaxScroll
       });
 
       await sbFetch(`visits?visit_id=eq.${visitId}`, 'PATCH', {
         ended_at: now,
-        duration_sec: data.duration_sec,
+        duration_sec: finalDuration,
         is_bounce: false,
         exit_page: data.page
       });
