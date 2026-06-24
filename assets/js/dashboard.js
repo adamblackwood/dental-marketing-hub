@@ -2,6 +2,7 @@
 let activeTab = 'visitors';
 
 window.addEventListener('DOMContentLoaded', async () => {
+    // 1. Auth Check
     try {
         const res = await fetch('/api/admin/auth');
         if (!res.ok) return window.location.href = '/admin/login.html';
@@ -9,14 +10,17 @@ window.addEventListener('DOMContentLoaded', async () => {
         return window.location.href = '/admin/login.html';
     }
 
+    // 2. Logout Logic
     document.getElementById('logout-btn').addEventListener('click', async (e) => {
         e.preventDefault();
         await fetch('/api/admin/auth', { method: 'DELETE' });
         window.location.href = '/admin/login.html';
     });
 
+    // 3. Analytics
     fetchAnalytics();
 
+    // 4. Tabs & Event Delegation
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             activeTab = e.target.getAttribute('data-tab');
@@ -26,9 +30,11 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
+    // Event Delegation for Table Actions
     document.getElementById('table-body').addEventListener('click', async (e) => {
         const target = e.target.closest('button');
         if (!target) return;
+
         const id = target.getAttribute('data-id');
         
         if (target.classList.contains('btn-360')) {
@@ -36,15 +42,17 @@ window.addEventListener('DOMContentLoaded', async () => {
         } else if (target.classList.contains('btn-delete')) {
             if (confirm('Are you sure you want to delete this row?')) {
                 await fetch(`/api/admin/${activeTab}/${id}`, { method: 'DELETE' });
-                fetchTableData();
+                fetchTableData(); // Refresh
             }
         }
     });
 
+    // Modal Close
     document.getElementById('modal-close').addEventListener('click', () => {
         document.getElementById('journey-modal').classList.remove('active');
     });
 
+    // Initial Load
     fetchTableData();
 });
 
@@ -155,6 +163,7 @@ async function openJourneyModal(uid) {
             <h3>Navigation Journey (Zero-Bloat JSONB)</h3>
         `;
 
+        // Map visit_id to started_at to fix the "Invalid Date" issue
         const visitDates = {};
         if (data.visits) {
             data.visits.forEach(v => {
@@ -171,14 +180,10 @@ async function openJourneyModal(uid) {
                 html += `<div class="timeline">`;
                 
                 if (Array.isArray(j.journey)) {
-                    j.journey.forEach((item, idx) => {
-                        // Handle both old string format and new object format
-                        const path = typeof item === 'string' ? item : item.p;
-                        const scroll = typeof item === 'object' ? item.s : 0;
-                        
+                    j.journey.forEach((path, idx) => {
                         html += `
                             <div class="timeline-item">
-                                <div class="timeline-time">Step ${idx + 1} - Scroll: ${scroll}%</div>
+                                <div class="timeline-time">Step ${idx + 1}</div>
                                 <div class="timeline-path">${path}</div>
                             </div>
                         `;
