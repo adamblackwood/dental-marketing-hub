@@ -50,7 +50,7 @@ export async function onRequestPost(context) {
     // 1. SESSION_START — جلسة واحدة لكل صفحة (لا تكرار عند العودة)
     // ----------------------------------------------------------------------
     if (event_type === 'session_start') {
-      const checkSessRes = await sbFetch(`sessions?session_id=eq.${session_id}&select=visit_id,max_scroll_pct`, 'GET');
+      const checkSessRes = await sbFetch(`sessions?session_id=eq.${session_id}&select=visit_id`, 'GET');
       const checkSessData = await checkSessRes.json();
 
       if (checkSessData.length > 0) {
@@ -63,10 +63,10 @@ export async function onRequestPost(context) {
           ended_at: null
         });
 
-        // إضافة الصفحة للرحلة فقط إذا لم تكن آخر صفحة (تجنّب التضخّم عند التحديث)
+        // إضافة الصفحة للرحلة فقط إذا لم تكن آخر صفحة (تجنّب التضخّم)
         const journeyRes = await sbFetch(`visit_journeys?visit_id=eq.${visitId}&select=journey`, 'GET');
         const journeyData = await journeyRes.json();
-        if (journeyData.length > 0) {
+        if (journeyData.length > 0 && journeyData[0].journey) {
           const currentJourney = journeyData[0].journey;
           if (currentJourney[currentJourney.length - 1] !== data.landing_page) {
             currentJourney.push(data.landing_page);
@@ -148,44 +148,15 @@ export async function onRequestPost(context) {
         uid,
         device_type: data.device_type || 'unknown',
         started_at: now,
-        last_activity_at: now
+        last_activity_at: now,
+        max_scroll_pct: 0
       });
 
       return new Response(JSON.stringify({ success: true, visit_id: visitId }), { status: 200 });
     }
 
     // ----------------------------------------------------------------------
-    // 2. PAGE_CHANGE (For SPA pushState navigations)
-    // ----------------------------------------------------------------------
-    if (event_type === 'page_change') {
-      const visitId = await getVisitIdFromSession(session_id);
-      if (!visitId) return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404 });
-
-      await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', { last_activity_at: now });
-
-      const journeyRes = await sbFetch(`visit_journeys?visit_id=eq.${visitId}&select=journey`, 'GET');
-      const journeyData = await journeyRes.json();
-      const currentJourney = journeyData[0].journey;
-
-      if (currentJourney[currentJourney.length - 1] !== data.page) {
-        currentJourney.push(data.page);
-        await sbFetch(`visit_journeys?visit_id=eq.${visitId}`, 'PATCH', { journey: currentJourney });
-        await updateLeadScore(uid, 2); // Micro-Scoring +2
-
-        const visitRes = await sbFetch(`visits?visit_id=eq.${visitId}&select=pages_viewed`, 'GET');
-        const visitData = await visitRes.json();
-        const pagesViewed = visitData[0].pages_viewed + 1;
-        await sbFetch(`visits?visit_id=eq.${visitId}`, 'PATCH', {
-          exit_page: data.page,
-          pages_viewed: pagesViewed
-        });
-      }
-
-      return new Response(JSON.stringify({ success: true }), { status: 200 });
-    }
-
-    // ----------------------------------------------------------------------
-    // 3. EXIT (حماية أعلى Scroll & حساب المدة الحقيقية)
+    // 2. EXIT (حماية أعلى Scroll & حساب المدة الحقيقية)
     // ----------------------------------------------------------------------
     if (event_type === 'exit') {
       const visitId = await getVisitIdFromSession(session_id);
@@ -226,7 +197,7 @@ export async function onRequestPost(context) {
     }
 
     // ----------------------------------------------------------------------
-    // 4. HEARTBEAT
+    // 3. HEARTBEAT
     // ----------------------------------------------------------------------
     if (event_type === 'heartbeat') {
       await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', { last_activity_at: now });
@@ -234,7 +205,7 @@ export async function onRequestPost(context) {
     }
 
     // ----------------------------------------------------------------------
-    // 5. SCROLL (تحديث فقط عندما يكون الجديد أعلى من السابق)
+    // 4. SCROLL (تحديث فقط عندما يكون الجديد أعلى من السابق)
     // ----------------------------------------------------------------------
     if (event_type === 'scroll') {
       const sessRes = await sbFetch(`sessions?session_id=eq.${session_id}&select=max_scroll_pct`, 'GET');
@@ -252,7 +223,7 @@ export async function onRequestPost(context) {
     }
 
     // ----------------------------------------------------------------------
-    // 6. COMMERCIAL EVENTS
+    // 5. COMMERCIAL EVENTS
     // ----------------------------------------------------------------------
     const commercialEvents = ['file_download', 'form_submit', 'affiliate_click'];
     if (commercialEvents.includes(event_type)) {

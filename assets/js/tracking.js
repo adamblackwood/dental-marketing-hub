@@ -18,18 +18,19 @@
         localStorage.setItem('uid', uid);
     }
 
-    // 2. Session ID — جلسة واحدة ثابتة لكل (زائر + صفحة)
-    // نولّد معرّفاً ثابتاً مشتقاً من uid والمسار، فلا تتكرر الجلسة عند العودة لنفس الصفحة
-    function buildSessionId(u, path) {
-        let raw = `${u}::${path}`;
-        let hash = 0;
-        for (let i = 0; i < raw.length; i++) {
-            hash = ((hash << 5) - hash) + raw.charCodeAt(i);
-            hash |= 0;
+    // 2. Session ID — جلسة UUID واحدة ثابتة لكل صفحة
+    // نخزّن UUID لكل صفحة في localStorage بمفتاح يحمل مسار الصفحة،
+    // فلا تتكرر الجلسة عند العودة لنفس الصفحة، والقيمة UUID صالحة لقاعدة البيانات.
+    function getOrCreatePageSessionId(path) {
+        const storageKey = `session_id_${path}`;
+        let sid = localStorage.getItem(storageKey);
+        if (!sid) {
+            sid = crypto.randomUUID();
+            localStorage.setItem(storageKey, sid);
         }
-        return `s_${Math.abs(hash)}_${path.replace(/[^a-z0-9]/gi, '').slice(0, 20)}`;
+        return sid;
     }
-    let sessionId = buildSessionId(uid, window.location.pathname);
+    let sessionId = getOrCreatePageSessionId(window.location.pathname);
 
     // State
     let maxScroll = 0;
@@ -108,16 +109,18 @@
     history.pushState = function() {
         pushState.apply(history, arguments);
         // عند تنقّل SPA: حدّث معرّف الجلسة ليطابق الصفحة الجديدة
-        sessionId = buildSessionId(uid, window.location.pathname);
-        sendData({ event_type: 'page_change', page: window.location.pathname });
+        sessionId = getOrCreatePageSessionId(window.location.pathname);
+        sendData({ event_type: 'session_start', landing_page: window.location.pathname,
+            device_type: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop' });
         // Reset scroll tracking for new page
         maxScroll = 0;
         triggeredThresholds.clear();
     };
     window.addEventListener('popstate', () => {
         // العودة/التقدّم: حدّث معرّف الجلسة ليطابق الصفحة الحالية
-        sessionId = buildSessionId(uid, window.location.pathname);
-        sendData({ event_type: 'page_change', page: window.location.pathname });
+        sessionId = getOrCreatePageSessionId(window.location.pathname);
+        sendData({ event_type: 'session_start', landing_page: window.location.pathname,
+            device_type: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop' });
         maxScroll = 0;
         triggeredThresholds.clear();
     });
