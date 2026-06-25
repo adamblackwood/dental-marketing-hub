@@ -41,48 +41,43 @@ export async function onRequestPost(context) {
     const data = await context.request.json();
     const { event_type, uid, session_id } = data;
     const now = new Date().toISOString();
-    
+
     if (!uid || !session_id || !event_type) {
       return new Response(JSON.stringify({ error: 'Missing core parameters' }), { status: 400 });
     }
 
-    // ------------------------------------------------------------------
-    // 1. SESSION_START
-    // ------------------------------------------------------------------
+    // ----------------------------------------------------------------------
+    // 1. SESSION_START — جلسة واحدة لكل صفحة (لا تكرار عند العودة)
+    // ----------------------------------------------------------------------
     if (event_type === 'session_start') {
-      const checkSessRes = await sbFetch(`sessions?session_id=eq.${session_id}&select=visit_id`, 'GET');
+      const checkSessRes = await sbFetch(`sessions?session_id=eq.${session_id}&select=visit_id,max_scroll_pct`, 'GET');
       const checkSessData = await checkSessRes.json();
-      
+
       if (checkSessData.length > 0) {
-        // Session exists (User navigated to a new HTML page or refreshed)
+        // الجلسة موجودة مسبقاً لهذه الصفحة → تحديث فقط، بدون إنشاء جلسة جديدة
         const visitId = checkSessData[0].visit_id;
-        await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', { last_activity_at: now });
-        
-        // Check if URL is different from the last one in journey to avoid bloat on refresh
+
+        // إحياء الجلسة: تحديث النشاط ومسح ended_at لمنع الجلسات الميتة
+        await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', {
+          last_activity_at: now,
+          ended_at: null
+        });
+
+        // إضافة الصفحة للرحلة فقط إذا لم تكن آخر صفحة (تجنّب التضخّم عند التحديث)
         const journeyRes = await sbFetch(`visit_journeys?visit_id=eq.${visitId}&select=journey`, 'GET');
         const journeyData = await journeyRes.json();
-        const currentJourney = journeyData[0].journey;
-        
-        if (currentJourney[currentJourney.length - 1] !== data.landing_page) {
-          // It's a genuine page navigation, not a refresh
-          currentJourney.push(data.landing_page);
-          await sbFetch(`visit_journeys?visit_id=eq.${visitId}`, 'PATCH', { journey: currentJourney });
-          
-          // Micro-Scoring for page view (+2)
-          await updateLeadScore(uid, 2);
-
-          const visitRes = await sbFetch(`visits?visit_id=eq.${visitId}&select=pages_viewed`, 'GET');
-          const visitData = await visitRes.json();
-          const pagesViewed = visitData[0].pages_viewed + 1;
-          await sbFetch(`visits?visit_id=eq.${visitId}`, 'PATCH', {
-            exit_page: data.landing_page,
-            pages_viewed: pagesViewed
-          });
+        if (journeyData.length > 0) {
+          const currentJourney = journeyData[0].journey;
+          if (currentJourney[currentJourney.length - 1] !== data.landing_page) {
+            currentJourney.push(data.landing_page);
+            await sbFetch(`visit_journeys?visit_id=eq.${visitId}`, 'PATCH', { journey: currentJourney });
+          }
         }
-        return new Response(JSON.stringify({ success: true, visit_id: visitId }), { status: 200 });
+
+        return new Response(JSON.stringify({ success: true, visit_id: visitId, session_existing: true }), { status: 200 });
       }
 
-      // It's a completely new session. Upsert visitor_profiles
+      // جلسة جديدة تماماً لهذه الصفحة. Upsert visitor_profiles
       await sbFetch('visitor_profiles', 'POST', {
         uid,
         last_seen_at: now
@@ -91,7 +86,7 @@ export async function onRequestPost(context) {
       const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
       const sessRes = await sbFetch(`sessions?uid=eq.${uid}&order=last_activity_at.desc&limit=1&select=last_activity_at,visit_id`, 'GET');
       const sessData = await sessRes.json();
-      
+
       let visitId;
       let isNewVisit = true;
 
@@ -126,15 +121,15 @@ export async function onRequestPost(context) {
         await sbFetch(`visitor_profiles?uid=eq.${uid}`, 'PATCH', { total_visits: totalVisits });
 
       } else {
-        // Active visit exists within 30 mins - Append to journey if new URL
+        // زيارة نشطة خلال 30 دقيقة - أضف للرحلة إذا كانت صفحة جديدة
         const journeyRes = await sbFetch(`visit_journeys?visit_id=eq.${visitId}&select=journey`, 'GET');
         const journeyData = await journeyRes.json();
         const currentJourney = journeyData[0].journey;
-        
+
         if (currentJourney[currentJourney.length - 1] !== data.landing_page) {
           currentJourney.push(data.landing_page);
           await sbFetch(`visit_journeys?visit_id=eq.${visitId}`, 'PATCH', { journey: currentJourney });
-          await updateLeadScore(uid, 2); // +2 for new page
+          await updateLeadScore(uid, 2); // +2 لصفحة جديدة
 
           const visitRes = await sbFetch(`visits?visit_id=eq.${visitId}&select=pages_viewed`, 'GET');
           const visitData = await visitRes.json();
@@ -146,7 +141,7 @@ export async function onRequestPost(context) {
         }
       }
 
-      // Insert new session
+      // Insert new session (نفس session_id الثابت لهذه الصفحة)
       await sbFetch('sessions', 'POST', {
         session_id: session_id,
         visit_id: visitId,
@@ -159,9 +154,9 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ success: true, visit_id: visitId }), { status: 200 });
     }
 
-    // ------------------------------------------------------------------
+    // ----------------------------------------------------------------------
     // 2. PAGE_CHANGE (For SPA pushState navigations)
-    // ------------------------------------------------------------------
+    // ----------------------------------------------------------------------
     if (event_type === 'page_change') {
       const visitId = await getVisitIdFromSession(session_id);
       if (!visitId) return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404 });
@@ -171,7 +166,7 @@ export async function onRequestPost(context) {
       const journeyRes = await sbFetch(`visit_journeys?visit_id=eq.${visitId}&select=journey`, 'GET');
       const journeyData = await journeyRes.json();
       const currentJourney = journeyData[0].journey;
-      
+
       if (currentJourney[currentJourney.length - 1] !== data.page) {
         currentJourney.push(data.page);
         await sbFetch(`visit_journeys?visit_id=eq.${visitId}`, 'PATCH', { journey: currentJourney });
@@ -189,22 +184,40 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ success: true }), { status: 200 });
     }
 
-    // ------------------------------------------------------------------
-    // 3. EXIT
-    // ------------------------------------------------------------------
+    // ----------------------------------------------------------------------
+    // 3. EXIT (حماية أعلى Scroll & حساب المدة الحقيقية)
+    // ----------------------------------------------------------------------
     if (event_type === 'exit') {
       const visitId = await getVisitIdFromSession(session_id);
       if (!visitId) return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404 });
 
+      const sessRes = await sbFetch(`sessions?session_id=eq.${session_id}&select=max_scroll_pct,started_at`, 'GET');
+      const sessData = await sessRes.json();
+
+      let finalMaxScroll = data.max_scroll_pct || 0;
+      let finalDuration = data.duration_sec || 0;
+
+      if (sessData.length > 0) {
+        // حماية Scroll: احتفظ بالقيمة الأعلى تاريخياً
+        if (sessData[0].max_scroll_pct > finalMaxScroll) {
+          finalMaxScroll = sessData[0].max_scroll_pct;
+        }
+        // احسب المدة الدقيقة من started_at المخزّنة
+        if (sessData[0].started_at) {
+          const startTime = new Date(sessData[0].started_at).getTime();
+          finalDuration = Math.round((Date.now() - startTime) / 1000);
+        }
+      }
+
       await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', {
         ended_at: now,
-        duration_sec: data.duration_sec,
-        max_scroll_pct: data.max_scroll_pct
+        duration_sec: finalDuration,
+        max_scroll_pct: finalMaxScroll
       });
 
       await sbFetch(`visits?visit_id=eq.${visitId}`, 'PATCH', {
         ended_at: now,
-        duration_sec: data.duration_sec,
+        duration_sec: finalDuration,
         is_bounce: false,
         exit_page: data.page
       });
@@ -212,25 +225,25 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ success: true }), { status: 200 });
     }
 
-    // ------------------------------------------------------------------
+    // ----------------------------------------------------------------------
     // 4. HEARTBEAT
-    // ------------------------------------------------------------------
+    // ----------------------------------------------------------------------
     if (event_type === 'heartbeat') {
       await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', { last_activity_at: now });
       return new Response(JSON.stringify({ success: true }), { status: 200 });
     }
 
-    // ------------------------------------------------------------------
-    // 5. SCROLL (Micro-Scoring at 50% and 100%)
-    // ------------------------------------------------------------------
+    // ----------------------------------------------------------------------
+    // 5. SCROLL (تحديث فقط عندما يكون الجديد أعلى من السابق)
+    // ----------------------------------------------------------------------
     if (event_type === 'scroll') {
       const sessRes = await sbFetch(`sessions?session_id=eq.${session_id}&select=max_scroll_pct`, 'GET');
       const sessData = await sessRes.json();
-      
+
       if (sessData.length > 0 && data.scroll > sessData[0].max_scroll_pct) {
         await sbFetch(`sessions?session_id=eq.${session_id}`, 'PATCH', { max_scroll_pct: data.scroll });
-        
-        // Award points only the first time they hit 50% and 100%
+
+        // امنح النقاط مرة واحدة فقط عند بلوغ 50% و100% لأول مرة
         if (data.scroll === 50 || data.scroll === 100) {
           await updateLeadScore(uid, 2); // Micro-Scoring +2
         }
@@ -238,9 +251,9 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ success: true }), { status: 200 });
     }
 
-    // ------------------------------------------------------------------
+    // ----------------------------------------------------------------------
     // 6. COMMERCIAL EVENTS
-    // ------------------------------------------------------------------
+    // ----------------------------------------------------------------------
     const commercialEvents = ['file_download', 'form_submit', 'affiliate_click'];
     if (commercialEvents.includes(event_type)) {
       const visitId = await getVisitIdFromSession(session_id);
@@ -263,7 +276,7 @@ export async function onRequestPost(context) {
         const newScore = profData[0].lead_score + scoreToAdd;
         const newConversions = profData[0].total_conversions + 1;
         const newStatus = newScore >= 70 ? 'hot' : (newScore >= 30 ? 'warm' : 'cold');
-        
+
         await sbFetch(`visitor_profiles?uid=eq.${uid}`, 'PATCH', {
           lead_score: newScore,
           total_conversions: newConversions,

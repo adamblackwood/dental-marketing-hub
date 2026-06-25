@@ -2,7 +2,7 @@
 (function() {
     const TRACK_API = '/api/track';
     const urlParams = new URLSearchParams(window.location.search);
-    
+
     // 1. UID & ABM Merge Logic
     let uid = localStorage.getItem('uid');
     const identifiedUid = urlParams.get('identified');
@@ -18,12 +18,18 @@
         localStorage.setItem('uid', uid);
     }
 
-    // 2. Session ID
-    let sessionId = sessionStorage.getItem('session_id');
-    if (!sessionId) {
-        sessionId = crypto.randomUUID();
-        sessionStorage.setItem('session_id', sessionId);
+    // 2. Session ID — جلسة واحدة ثابتة لكل (زائر + صفحة)
+    // نولّد معرّفاً ثابتاً مشتقاً من uid والمسار، فلا تتكرر الجلسة عند العودة لنفس الصفحة
+    function buildSessionId(u, path) {
+        let raw = `${u}::${path}`;
+        let hash = 0;
+        for (let i = 0; i < raw.length; i++) {
+            hash = ((hash << 5) - hash) + raw.charCodeAt(i);
+            hash |= 0;
+        }
+        return `s_${Math.abs(hash)}_${path.replace(/[^a-z0-9]/gi, '').slice(0, 20)}`;
     }
+    let sessionId = buildSessionId(uid, window.location.pathname);
 
     // State
     let maxScroll = 0;
@@ -36,7 +42,7 @@
         payload.uid = uid;
         payload.session_id = sessionId;
         const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-        
+
         if (useBeacon && navigator.sendBeacon) {
             return navigator.sendBeacon(TRACK_API, blob);
         } else {
@@ -66,7 +72,7 @@
         const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
         const scrollHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
         const scrollPct = (scrollTop / scrollHeight) * 100;
-        
+
         if (scrollPct > maxScroll) {
             maxScroll = Math.round(scrollPct);
         }
@@ -101,12 +107,16 @@
     const pushState = history.pushState;
     history.pushState = function() {
         pushState.apply(history, arguments);
+        // عند تنقّل SPA: حدّث معرّف الجلسة ليطابق الصفحة الجديدة
+        sessionId = buildSessionId(uid, window.location.pathname);
         sendData({ event_type: 'page_change', page: window.location.pathname });
         // Reset scroll tracking for new page
         maxScroll = 0;
         triggeredThresholds.clear();
     };
     window.addEventListener('popstate', () => {
+        // العودة/التقدّم: حدّث معرّف الجلسة ليطابق الصفحة الحالية
+        sessionId = buildSessionId(uid, window.location.pathname);
         sendData({ event_type: 'page_change', page: window.location.pathname });
         maxScroll = 0;
         triggeredThresholds.clear();
