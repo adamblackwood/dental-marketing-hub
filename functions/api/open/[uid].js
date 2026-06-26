@@ -3,6 +3,16 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID }
 
 const TRANSPARENT_GIF_BASE64 = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
+// دالة توليد UUID حتمي لمنع تكرار الأحداث
+async function deterministicUUID(uid, type, value) {
+    const str = `${uid}_${type}_${value}`;
+    const buffer = new TextEncoder().encode(str);
+    const hashBuffer = await crypto.subtle.digest('SHA-1', buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return `${hashHex.substring(0, 8)}-${hashHex.substring(8, 12)}-${hashHex.substring(12, 16)}-${hashHex.substring(16, 20)}-${hashHex.substring(20, 32)}`;
+}
+
 function buildPixelResponse() {
   const gifBuffer = Uint8Array.from(atob(TRANSPARENT_GIF_BASE64), c => c.charCodeAt(0));
   return new Response(gifBuffer, {
@@ -57,38 +67,49 @@ export async function onRequestGet(context) {
             });
           }
 
-          // 2. منع تكرار حدث email_open
-          const evCheckRes = await fetch(`${SUPABASE_URL}/rest/v1/events?uid=eq.${uid}&event_type=eq.email_open&event_value=eq.${encodeURIComponent(campaign)}&select=event_id`, { headers: sbHeaders });
-          const evCheckData = await evCheckRes.json();
+          // 2. إدراج حدث email_open بشكل حتمي (Deterministic UUID)
+          const openUuid = await deterministicUUID(uid, 'email_open', campaign);
+          
+          await fetch(`${SUPABASE_URL}/rest/v1/events`, {
+            method: 'POST',
+            headers: { ...sbHeaders, 'Prefer': 'resolution=ignore-duplicates' },
+            body: JSON.stringify({
+              event_uuid: openUuid, 
+              uid: uid, 
+              event_type: 'email_open',
+              event_value: campaign, 
+              created_at: now
+            })
+          });
 
-          if (!evCheckData || evCheckData.length === 0) {
-            await fetch(`${SUPABASE_URL}/rest/v1/events`, {
+          // 3. Upsert آمن لـ email_activities (Fetch -> PATCH or POST)
+          const eaRes = await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}`, { headers: sbHeaders });
+          const eaData = await eaRes.json();
+
+          if (eaData && eaData.length > 0) {
+            // السجل موجود مسبقاً، نقوم بزيادة العداد وتحديث last_open_at
+            await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}`, {
+              method: 'PATCH',
+              headers: sbHeaders,
+              body: JSON.stringify({
+                open_count: (eaData[0].open_count || 0) + 1,
+                last_open_at: now
+              })
+            });
+          } else {
+            // لا يوجد سجل، نقوم بإنشاء واحد جديد
+            await fetch(`${SUPABASE_URL}/rest/v1/email_activities`, {
               method: 'POST',
               headers: sbHeaders,
               body: JSON.stringify({
-                event_uuid: crypto.randomUUID(), uid, event_type: 'email_open',
-                event_value: campaign, created_at: now
+                uid: uid,
+                campaign_name: campaign,
+                open_count: 1,
+                entered_site: false,
+                last_open_at: now
               })
             });
           }
-
-          // 3. Atomic Upsert لـ email_activities (يجب وجود Unique Constraint على uid+campaign_name في Supabase)
-          // نقرأ العداد الحالي أولاً إذا كان موجوداً
-          const eaRes = await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}&select=open_count`, { headers: sbHeaders });
-          const eaData = await eaRes.json();
-          const currentCount = (eaData && eaData.length > 0) ? (eaData[0].open_count || 0) : 0;
-
-          await fetch(`${SUPABASE_URL}/rest/v1/email_activities?on_conflict=uid,campaign_name`, {
-            method: 'POST',
-            headers: { ...sbHeaders, 'Prefer': 'resolution=merge-duplicates' },
-            body: JSON.stringify({
-              uid: uid,
-              campaign_name: campaign,
-              open_count: currentCount + 1,
-              entered_site: (eaData && eaData.length > 0) ? eaData[0].entered_site : false,
-              last_open_at: now
-            })
-          });
 
           // 4. إشعار تليجرام
           const tgMsg = `📧 *Email Opened!*\n\n*Email:* ${email}\n*Campaign:* ${campaign}\n*UID:* ${uid}\n*Time:* ${now}`;
