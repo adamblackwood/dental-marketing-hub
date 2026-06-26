@@ -7,7 +7,6 @@ export async function onRequestGet(context) {
     if (!uid) return new Response('No UID', { status: 400 });
 
     const url = new URL(context.request.url);
-    // قراءة اسم الحملة لربطه بنفس سجل فتح الإيميل
     const campaign = url.searchParams.get('c') || 'unknown_campaign';
     const now = new Date().toISOString();
     
@@ -17,11 +16,10 @@ export async function onRequestGet(context) {
       'Content-Type': 'application/json'
     };
 
-    // تنفيذ عمليات قاعدة البيانات في الخلفية
     context.waitUntil(
       (async () => {
         try {
-          // 1. التأكد من وجود ملف الزائر (Upsert منطقي)
+          // 1. Upsert لملف الزائر
           const profCheckRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=uid`, { headers: sbHeaders });
           const profCheckData = await profCheckRes.json();
           
@@ -30,45 +28,31 @@ export async function onRequestGet(context) {
               method: 'POST',
               headers: sbHeaders,
               body: JSON.stringify({
-                uid,
-                is_identified: false,
-                lead_status: 'cold',
-                lead_score: 0,
-                total_visits: 0,
-                total_conversions: 0,
-                first_seen_at: now,
-                last_seen_at: now
+                uid, is_identified: false, lead_status: 'cold', lead_score: 0,
+                total_visits: 0, total_conversions: 0, first_seen_at: now, last_seen_at: now
               })
             });
           }
 
-          // 2. الربط الدقيق: البحث عن سجل الحملة المحدد لتحديثه
-          const eaCheckRes = await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}&select=uid`, { headers: sbHeaders });
-          const eaCheckData = await eaCheckRes.json();
+          // 2. Atomic Upsert لـ email_activities (ربط الفتح بالنقر)
+          // نحافظ على open_count إذا كان موجوداً، ونضع entered_site = true
+          const eaRes = await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}&select=open_count`, { headers: sbHeaders });
+          const eaData = await eaRes.json();
+          const currentCount = (eaData && eaData.length > 0) ? (eaData[0].open_count || 0) : 0;
 
-          if (eaCheckData && eaCheckData.length > 0) {
-            // السجل موجود (المستخدم فتح الإيميل أولاً) -> تحديث نفس السجل
-            await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}`, {
-              method: 'PATCH',
-              headers: sbHeaders,
-              body: JSON.stringify({ entered_site: true })
-            });
-          } else {
-            // السجل غير موجود (المستخدم ضغط مباشرة دون تفعيل البكسل) -> إنشاء سجل مرتبط
-            await fetch(`${SUPABASE_URL}/rest/v1/email_activities`, {
-              method: 'POST',
-              headers: sbHeaders,
-              body: JSON.stringify({
-                uid,
-                campaign_name: campaign,
-                open_count: 0,
-                entered_site: true,
-                last_open_at: now
-              })
-            });
-          }
+          await fetch(`${SUPABASE_URL}/rest/v1/email_activities?on_conflict=uid,campaign_name`, {
+            method: 'POST',
+            headers: { ...sbHeaders, 'Prefer': 'resolution=merge-duplicates' },
+            body: JSON.stringify({
+              uid: uid,
+              campaign_name: campaign,
+              open_count: currentCount,
+              entered_site: true,
+              last_open_at: (eaData && eaData.length > 0) ? eaData[0].last_open_at : now
+            })
+          });
 
-          // 3. إدراج حدث email_click (مرة واحدة فقط لمنع التكرار - Zero Bloat)
+          // 3. منع تكرار حدث email_click
           const evCheckRes = await fetch(`${SUPABASE_URL}/rest/v1/events?uid=eq.${uid}&event_type=eq.email_click&event_value=eq.${encodeURIComponent(campaign)}&select=event_id`, { headers: sbHeaders });
           const evCheckData = await evCheckRes.json();
 
@@ -77,11 +61,8 @@ export async function onRequestGet(context) {
               method: 'POST',
               headers: sbHeaders,
               body: JSON.stringify({
-                event_uuid: crypto.randomUUID(),
-                uid: uid,
-                event_type: 'email_click',
-                event_value: campaign,
-                created_at: now
+                event_uuid: crypto.randomUUID(), uid, event_type: 'email_click',
+                event_value: campaign, created_at: now
               })
             });
           }
@@ -92,8 +73,8 @@ export async function onRequestGet(context) {
       })()
     );
 
-    // Redirect to homepage with identified UID
-    return Response.redirect(`/?identified=${uid}`, 302);
+    // التوجيه للموقع لتبدأ جلسة tracking.js وتكتمل الرحلة الموحدة
+    return Response.redirect(`https://dental-marketing-hub.pages.dev/?identified=${uid}`, 302);
 
   } catch (err) {
     return new Response('Error', { status: 500 });
