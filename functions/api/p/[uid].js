@@ -34,8 +34,8 @@ export async function onRequestGet(context) {
             });
           }
 
-          // 2. Atomic Upsert لـ email_activities (سيعمل الآن بعد إضافة القيد الفريد في SQL)
-          const eaRes = await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}&select=open_count,last_open_at`, { headers: sbHeaders });
+          // 2. Atomic Upsert لـ email_activities (القيد الفريد موجود مسبقاً وسيتم التحديث بنجاح)
+          const eaRes = await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}&select=open_count,last_open_at,entered_site`, { headers: sbHeaders });
           const eaData = await eaRes.json();
           const currentCount = (eaData && eaData.length > 0) ? (eaData[0].open_count || 0) : 0;
           const lastOpen = (eaData && eaData.length > 0) ? eaData[0].last_open_at : now;
