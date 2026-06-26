@@ -1,5 +1,5 @@
 // functions/api/open/[uid].js
-import { SUPABASE_URL, SUPABASE_ANON_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } from '../../config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } from '../config.js';
 
 // 1x1 Transparent GIF as raw bytes (More reliable than Base64 decoding in Edge Runtime)
 const PIXEL_BYTES = new Uint8Array([
