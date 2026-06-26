@@ -7,6 +7,7 @@ export async function onRequestGet(context) {
     if (!uid) return new Response('No UID', { status: 400 });
 
     const url = new URL(context.request.url);
+    // قراءة اسم الحملة لربطه بنفس سجل فتح الإيميل
     const campaign = url.searchParams.get('c') || 'unknown_campaign';
     const now = new Date().toISOString();
     
@@ -41,19 +42,19 @@ export async function onRequestGet(context) {
             });
           }
 
-          // 2. إدارة email_activities بناءً على UID والحملة (لضمان نفس السجل)
+          // 2. الربط الدقيق: البحث عن سجل الحملة المحدد لتحديثه
           const eaCheckRes = await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}&select=uid`, { headers: sbHeaders });
           const eaCheckData = await eaCheckRes.json();
 
           if (eaCheckData && eaCheckData.length > 0) {
-            // السجل موجود (فتح الإيميل أولاً ثم نقر) -> تحديث entered_site = true
+            // السجل موجود (المستخدم فتح الإيميل أولاً) -> تحديث نفس السجل
             await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}`, {
               method: 'PATCH',
               headers: sbHeaders,
               body: JSON.stringify({ entered_site: true })
             });
           } else {
-            // السجل غير موجود (نقر مباشر دون فتح مسبق) -> إنشاء سجل جديد بالحملة الصحيحة
+            // السجل غير موجود (المستخدم ضغط مباشرة دون تفعيل البكسل) -> إنشاء سجل مرتبط
             await fetch(`${SUPABASE_URL}/rest/v1/email_activities`, {
               method: 'POST',
               headers: sbHeaders,
@@ -67,7 +68,7 @@ export async function onRequestGet(context) {
             });
           }
 
-          // 3. منع تكرار حدث email_click (Zero-Bloat Rule)
+          // 3. إدراج حدث email_click (مرة واحدة فقط لمنع التكرار - Zero Bloat)
           const evCheckRes = await fetch(`${SUPABASE_URL}/rest/v1/events?uid=eq.${uid}&event_type=eq.email_click&event_value=eq.${encodeURIComponent(campaign)}&select=event_id`, { headers: sbHeaders });
           const evCheckData = await evCheckRes.json();
 
@@ -79,7 +80,7 @@ export async function onRequestGet(context) {
                 event_uuid: crypto.randomUUID(),
                 uid: uid,
                 event_type: 'email_click',
-                event_value: campaign, // ربط النقر بالحملة
+                event_value: campaign,
                 created_at: now
               })
             });
