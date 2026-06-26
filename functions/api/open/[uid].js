@@ -1,16 +1,12 @@
 // functions/api/open/[uid].js
 import { SUPABASE_URL, SUPABASE_ANON_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } from '../config.js';
 
-// 1x1 Transparent GIF as raw bytes
-const PIXEL_BYTES = new Uint8Array([
-  0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
-  0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x01,
-  0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02,
-  0x4c, 0x01, 0x00, 0x3b
-]);
+// صورة GIF شفافة 1x1 بيكسل (Base64 صحيح ومُختبر)
+const TRANSPARENT_GIF_BASE64 = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 function buildPixelResponse() {
-  return new Response(PIXEL_BYTES, {
+  const gifBuffer = Uint8Array.from(atob(TRANSPARENT_GIF_BASE64), c => c.charCodeAt(0));
+  return new Response(gifBuffer, {
     status: 200,
     headers: {
       'Content-Type': 'image/gif',
@@ -34,7 +30,7 @@ export async function onRequestGet(context) {
     const campaign = url.searchParams.get('c') || 'unknown_campaign';
     const now = new Date().toISOString();
 
-    // لو لا يوجد UID، أرجِع البكسل فوراً دون تسجيل
+    // لو لا يوجد UID، أرجِع البكسل فوراً دون تسجيل (لا تُظهر خطأ في البريد)
     if (!uid) {
       return buildPixelResponse();
     }
@@ -43,25 +39,38 @@ export async function onRequestGet(context) {
     context.waitUntil(
       (async () => {
         try {
-          // 1. (الحل الجذري) Upsert لـ visitor_profiles
-          // إذا كان الزائر جديداً (Cold Lead)، سيتم إنشاء ملف له تلقائياً لتجنب خطأ Foreign Key
-          // إذا كان مسجلاً، لن يتأثر (Merge Duplicates).
-          await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles`, {
-            method: 'POST',
-            headers: {
-              ...sbHeaders,
-              'Prefer': 'resolution=merge-duplicates'
-            },
-            body: JSON.stringify({
-              uid: uid,
-              first_seen_at: now,
-              last_seen_at: now,
-              lead_score: 0,
-              lead_status: 'cold',
-              total_visits: 0,
-              total_conversions: 0
-            })
-          });
+          // 1. التأكد من وجود ملف الزائر (Upsert منطقي عبر GET -> PATCH أو POST)
+          // هذا يمنع أخطاء الـ Foreign Key عند إدراج الأحداث للعملاء الباردين
+          const profCheckRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=identified_email`, { headers: sbHeaders });
+          const profCheckData = await profCheckRes.json();
+          
+          let email = 'Unknown';
+
+          if (profCheckData && profCheckData.length > 0) {
+            // الزائر موجود مسبقاً -> تحديث last_seen_at فقط
+            email = profCheckData[0].identified_email || 'Unknown';
+            await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
+              method: 'PATCH',
+              headers: sbHeaders,
+              body: JSON.stringify({ last_seen_at: now })
+            });
+          } else {
+            // زائر جديد (Cold Lead) -> إنشاء ملف جديد لمنع خطأ FK
+            await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles`, {
+              method: 'POST',
+              headers: sbHeaders,
+              body: JSON.stringify({
+                uid,
+                is_identified: false,
+                lead_status: 'cold',
+                lead_score: 0,
+                total_visits: 0,
+                total_conversions: 0,
+                first_seen_at: now,
+                last_seen_at: now
+              })
+            });
+          }
 
           // 2. إدراج حدث email_open في جدول events
           await fetch(`${SUPABASE_URL}/rest/v1/events`, {
@@ -76,30 +85,26 @@ export async function onRequestGet(context) {
             })
           });
 
-          // 3. إدارة email_activities يدوياً (GET -> PATCH أو POST)
+          // 3. إدارة email_activities عبر (GET -> PATCH أو POST) لتجنب أخطاء القيود
           const eaRes = await fetch(
             `${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}&select=open_count`,
             { headers: sbHeaders }
           );
           const eaData = await eaRes.json();
-          const exists = Array.isArray(eaData) && eaData.length > 0;
-          const currentCount = exists ? (eaData[0].open_count || 0) : 0;
 
-          if (exists) {
-            // السجل موجود مسبقاً -> تحديث العداد فقط
-            await fetch(
-              `${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}`,
-              {
-                method: 'PATCH',
-                headers: sbHeaders,
-                body: JSON.stringify({
-                  open_count: currentCount + 1,
-                  last_open_at: now
-                })
-              }
-            );
+          if (eaData && eaData.length > 0) {
+            // السجل موجود -> PATCH لزيادة العداد
+            const currentCount = eaData[0].open_count || 0;
+            await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}`, {
+              method: 'PATCH',
+              headers: sbHeaders,
+              body: JSON.stringify({
+                open_count: currentCount + 1,
+                last_open_at: now
+              })
+            });
           } else {
-            // أول فتح للإيميل -> إدراج سجل جديد مع تضمين first_open_at
+            // السجل غير موجود -> POST لإنشاء سجل جديد
             await fetch(`${SUPABASE_URL}/rest/v1/email_activities`, {
               method: 'POST',
               headers: sbHeaders,
@@ -107,25 +112,12 @@ export async function onRequestGet(context) {
                 uid: uid,
                 campaign_name: campaign,
                 open_count: 1,
-                first_open_at: now,
                 last_open_at: now
               })
             });
           }
 
-          // 4. جلب الإيميل لإرساله في إشعار التليجرام
-          const profRes = await fetch(
-            `${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=identified_email`,
-            { headers: sbHeaders }
-          );
-          const profData = await profRes.json();
-          let email = 'Anonymous (Cold Lead)';
-          
-          if (Array.isArray(profData) && profData.length > 0 && profData[0].identified_email) {
-            email = profData[0].identified_email;
-          }
-
-          // 5. إرسال إشعار تليجرام
+          // 4. إرسال إشعار تليجرام
           const tgMsg = `📧 *Email Opened!*\n\n*Email:* ${email}\n*Campaign:* ${campaign}\n*UID:* ${uid}\n*Time:* ${now}`;
           await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
             method: 'POST',
@@ -138,15 +130,17 @@ export async function onRequestGet(context) {
           });
 
         } catch (innerErr) {
+          // أخطاء الكتابة لا يجب أن تؤثر على إرجاع الصورة — نتجاهلها بصمت هنا
           console.error('Email open tracking error:', innerErr);
         }
       })()
     );
 
-    // 6. أرجِع البكسل الشفاف دائماً
+    // 5. أرجِع البكسل الشفاف دائماً (حتى أثناء استمرار عمليات الكتابة في الخلفية)
     return buildPixelResponse();
 
   } catch (err) {
+    // أي خطأ خارجي: أرجِع البكسل أيضاً حتى لا يظهر خطأ في عميل البريد
     console.error('Open pixel fatal error:', err);
     return buildPixelResponse();
   }
