@@ -1,7 +1,7 @@
 // functions/api/open/[uid].js
 import { SUPABASE_URL, SUPABASE_ANON_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } from '../config.js';
 
-// 1x1 Transparent GIF as raw bytes (More reliable than Base64 decoding in Edge Runtime)
+// 1x1 Transparent GIF as raw bytes
 const PIXEL_BYTES = new Uint8Array([
   0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
   0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x01,
@@ -43,7 +43,27 @@ export async function onRequestGet(context) {
     context.waitUntil(
       (async () => {
         try {
-          // 1. إدراج حدث email_open في جدول events (Zero-Bloat Commercial Action)
+          // 1. (الحل الجذري) Upsert لـ visitor_profiles
+          // إذا كان الزائر جديداً (Cold Lead)، سيتم إنشاء ملف له تلقائياً لتجنب خطأ Foreign Key
+          // إذا كان مسجلاً، لن يتأثر (Merge Duplicates).
+          await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles`, {
+            method: 'POST',
+            headers: {
+              ...sbHeaders,
+              'Prefer': 'resolution=merge-duplicates'
+            },
+            body: JSON.stringify({
+              uid: uid,
+              first_seen_at: now,
+              last_seen_at: now,
+              lead_score: 0,
+              lead_status: 'cold',
+              total_visits: 0,
+              total_conversions: 0
+            })
+          });
+
+          // 2. إدراج حدث email_open في جدول events
           await fetch(`${SUPABASE_URL}/rest/v1/events`, {
             method: 'POST',
             headers: sbHeaders,
@@ -56,7 +76,7 @@ export async function onRequestGet(context) {
             })
           });
 
-          // 2. إدارة email_activities يدوياً (GET -> PATCH أو POST) لضمان عدم فقدان first_open_at
+          // 3. إدارة email_activities يدوياً (GET -> PATCH أو POST)
           const eaRes = await fetch(
             `${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}&select=open_count`,
             { headers: sbHeaders }
@@ -93,27 +113,19 @@ export async function onRequestGet(context) {
             });
           }
 
-          // 3. تحديث visitor_profiles (نتجنب total_email_opens لأنه غير موجود في المخطط)
+          // 4. جلب الإيميل لإرساله في إشعار التليجرام
           const profRes = await fetch(
             `${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=identified_email`,
             { headers: sbHeaders }
           );
           const profData = await profRes.json();
-          let email = 'Unknown';
+          let email = 'Anonymous (Cold Lead)';
           
-          if (Array.isArray(profData) && profData.length > 0) {
-            email = profData[0].identified_email || 'Unknown';
-            // تحديث last_seen_at فقط لتفادي أخطاء الأعمدة المفقودة
-            await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
-              method: 'PATCH',
-              headers: sbHeaders,
-              body: JSON.stringify({
-                last_seen_at: now
-              })
-            });
+          if (Array.isArray(profData) && profData.length > 0 && profData[0].identified_email) {
+            email = profData[0].identified_email;
           }
 
-          // 4. إرسال إشعار تليجرام (تم نقله خارج الـ if ليعمل دائماً حتى لو لم يكن الإيميل مسجلاً)
+          // 5. إرسال إشعار تليجرام
           const tgMsg = `📧 *Email Opened!*\n\n*Email:* ${email}\n*Campaign:* ${campaign}\n*UID:* ${uid}\n*Time:* ${now}`;
           await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
             method: 'POST',
@@ -126,17 +138,15 @@ export async function onRequestGet(context) {
           });
 
         } catch (innerErr) {
-          // أخطاء الكتابة لا يجب أن تؤثر على إرجاع الصورة
           console.error('Email open tracking error:', innerErr);
         }
       })()
     );
 
-    // 5. أرجِع البكسل الشفاف دائماً
+    // 6. أرجِع البكسل الشفاف دائماً
     return buildPixelResponse();
 
   } catch (err) {
-    // أي خطأ خارجي: أرجِع البكسل أيضاً
     console.error('Open pixel fatal error:', err);
     return buildPixelResponse();
   }
