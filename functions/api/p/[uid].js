@@ -1,4 +1,4 @@
-// functions/api/p/[uid].js
+// functions/p/[uid].js
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../config.js';
 
 export async function onRequestGet(context) {
@@ -19,7 +19,7 @@ export async function onRequestGet(context) {
     context.waitUntil(
       (async () => {
         try {
-          // 1. Upsert لملف الزائر
+          // 1. Upsert منطقي لملف الزائر
           const profCheckRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=uid`, { headers: sbHeaders });
           const profCheckData = await profCheckRes.json();
           
@@ -34,11 +34,11 @@ export async function onRequestGet(context) {
             });
           }
 
-          // 2. Atomic Upsert لـ email_activities (ربط الفتح بالنقر)
-          // نحافظ على open_count إذا كان موجوداً، ونضع entered_site = true
-          const eaRes = await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}&select=open_count`, { headers: sbHeaders });
+          // 2. Atomic Upsert لـ email_activities (سيعمل الآن بعد إضافة القيد الفريد في SQL)
+          const eaRes = await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}&select=open_count,last_open_at`, { headers: sbHeaders });
           const eaData = await eaRes.json();
           const currentCount = (eaData && eaData.length > 0) ? (eaData[0].open_count || 0) : 0;
+          const lastOpen = (eaData && eaData.length > 0) ? eaData[0].last_open_at : now;
 
           await fetch(`${SUPABASE_URL}/rest/v1/email_activities?on_conflict=uid,campaign_name`, {
             method: 'POST',
@@ -48,7 +48,7 @@ export async function onRequestGet(context) {
               campaign_name: campaign,
               open_count: currentCount,
               entered_site: true,
-              last_open_at: (eaData && eaData.length > 0) ? eaData[0].last_open_at : now
+              last_open_at: lastOpen
             })
           });
 
@@ -73,8 +73,14 @@ export async function onRequestGet(context) {
       })()
     );
 
-    // التوجيه للموقع لتبدأ جلسة tracking.js وتكتمل الرحلة الموحدة
-    return Response.redirect(`https://dental-marketing-hub.pages.dev/?identified=${uid}`, 302);
+    // التوجيه للموقع مع إضافة Cache-Control لمنع المتصفح من حفظ التوجيه
+    return new Response(null, {
+      status: 302,
+      headers: {
+        'Location': `https://dental-marketing-hub.pages.dev/?identified=${uid}`,
+        'Cache-Control': 'no-store, no-cache, must-revalidate'
+      }
+    });
 
   } catch (err) {
     return new Response('Error', { status: 500 });
