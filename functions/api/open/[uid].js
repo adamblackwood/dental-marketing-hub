@@ -30,7 +30,7 @@ export async function onRequestGet(context) {
     const campaign = url.searchParams.get('c') || 'unknown_campaign';
     const now = new Date().toISOString();
 
-    // لو لا يوجد UID، أرجِع البكسل فوراً دون تسجيل (لا تُظهر خطأ في البريد)
+    // لو لا يوجد UID، أرجِع البكسل فوراً دون تسجيل
     if (!uid) {
       return buildPixelResponse();
     }
@@ -40,14 +40,12 @@ export async function onRequestGet(context) {
       (async () => {
         try {
           // 1. التأكد من وجود ملف الزائر (Upsert منطقي عبر GET -> PATCH أو POST)
-          // هذا يمنع أخطاء الـ Foreign Key عند إدراج الأحداث للعملاء الباردين
           const profCheckRes = await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=identified_email`, { headers: sbHeaders });
           const profCheckData = await profCheckRes.json();
           
           let email = 'Unknown';
 
           if (profCheckData && profCheckData.length > 0) {
-            // الزائر موجود مسبقاً -> تحديث last_seen_at فقط
             email = profCheckData[0].identified_email || 'Unknown';
             await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
               method: 'PATCH',
@@ -55,7 +53,6 @@ export async function onRequestGet(context) {
               body: JSON.stringify({ last_seen_at: now })
             });
           } else {
-            // زائر جديد (Cold Lead) -> إنشاء ملف جديد لمنع خطأ FK
             await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles`, {
               method: 'POST',
               headers: sbHeaders,
@@ -72,20 +69,26 @@ export async function onRequestGet(context) {
             });
           }
 
-          // 2. إدراج حدث email_open في جدول events
-          await fetch(`${SUPABASE_URL}/rest/v1/events`, {
-            method: 'POST',
-            headers: sbHeaders,
-            body: JSON.stringify({
-              event_uuid: crypto.randomUUID(),
-              uid: uid,
-              event_type: 'email_open',
-              event_value: campaign,
-              created_at: now
-            })
-          });
+          // 2. منع تكرار حدث email_open (Zero-Bloat Rule)
+          const evCheckRes = await fetch(`${SUPABASE_URL}/rest/v1/events?uid=eq.${uid}&event_type=eq.email_open&event_value=eq.${encodeURIComponent(campaign)}&select=event_id`, { headers: sbHeaders });
+          const evCheckData = await evCheckRes.json();
 
-          // 3. إدارة email_activities عبر (GET -> PATCH أو POST) لتجنب أخطاء القيود
+          if (!evCheckData || evCheckData.length === 0) {
+            // إدراج الحدث مرة واحدة فقط لهذه الحملة
+            await fetch(`${SUPABASE_URL}/rest/v1/events`, {
+              method: 'POST',
+              headers: sbHeaders,
+              body: JSON.stringify({
+                event_uuid: crypto.randomUUID(),
+                uid: uid,
+                event_type: 'email_open',
+                event_value: campaign,
+                created_at: now
+              })
+            });
+          }
+
+          // 3. إدارة email_activities عبر (GET -> PATCH أو POST)
           const eaRes = await fetch(
             `${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}&select=open_count`,
             { headers: sbHeaders }
@@ -93,7 +96,6 @@ export async function onRequestGet(context) {
           const eaData = await eaRes.json();
 
           if (eaData && eaData.length > 0) {
-            // السجل موجود -> PATCH لزيادة العداد
             const currentCount = eaData[0].open_count || 0;
             await fetch(`${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}`, {
               method: 'PATCH',
@@ -104,7 +106,6 @@ export async function onRequestGet(context) {
               })
             });
           } else {
-            // السجل غير موجود -> POST لإنشاء سجل جديد
             await fetch(`${SUPABASE_URL}/rest/v1/email_activities`, {
               method: 'POST',
               headers: sbHeaders,
@@ -130,17 +131,14 @@ export async function onRequestGet(context) {
           });
 
         } catch (innerErr) {
-          // أخطاء الكتابة لا يجب أن تؤثر على إرجاع الصورة — نتجاهلها بصمت هنا
           console.error('Email open tracking error:', innerErr);
         }
       })()
     );
 
-    // 5. أرجِع البكسل الشفاف دائماً (حتى أثناء استمرار عمليات الكتابة في الخلفية)
     return buildPixelResponse();
 
   } catch (err) {
-    // أي خطأ خارجي: أرجِع البكسل أيضاً حتى لا يظهر خطأ في عميل البريد
     console.error('Open pixel fatal error:', err);
     return buildPixelResponse();
   }
