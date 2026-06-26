@@ -1,12 +1,16 @@
 // functions/api/open/[uid].js
 import { SUPABASE_URL, SUPABASE_ANON_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } from '../../config.js';
 
-// صورة GIF شفافة 1x1 بيكسل (Base64 صحيح ومُختبر)
-const TRANSPARENT_GIF_BASE64 = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+// 1x1 Transparent GIF as raw bytes (More reliable than Base64 decoding in Edge Runtime)
+const PIXEL_BYTES = new Uint8Array([
+  0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
+  0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x01,
+  0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02,
+  0x4c, 0x01, 0x00, 0x3b
+]);
 
 function buildPixelResponse() {
-  const gifBuffer = Uint8Array.from(atob(TRANSPARENT_GIF_BASE64), c => c.charCodeAt(0));
-  return new Response(gifBuffer, {
+  return new Response(PIXEL_BYTES, {
     status: 200,
     headers: {
       'Content-Type': 'image/gif',
@@ -30,7 +34,7 @@ export async function onRequestGet(context) {
     const campaign = url.searchParams.get('c') || 'unknown_campaign';
     const now = new Date().toISOString();
 
-    // لو لا يوجد UID، أرجِع البكسل فوراً دون تسجيل (لا تُظهر خطأ في البريد)
+    // لو لا يوجد UID، أرجِع البكسل فوراً دون تسجيل
     if (!uid) {
       return buildPixelResponse();
     }
@@ -39,7 +43,7 @@ export async function onRequestGet(context) {
     context.waitUntil(
       (async () => {
         try {
-          // 1. إدراج حدث email_open في جدول events
+          // 1. إدراج حدث email_open في جدول events (Zero-Bloat Commercial Action)
           await fetch(`${SUPABASE_URL}/rest/v1/events`, {
             method: 'POST',
             headers: sbHeaders,
@@ -52,75 +56,87 @@ export async function onRequestGet(context) {
             })
           });
 
-          // 2. Upsert في email_activities باستخدام القيد الفريد الصحيح on_conflict=uid,campaign_name
-          //    نقرأ العداد الحالي أولاً ثم نكتب القيمة الجديدة عبر Upsert ذرّي
+          // 2. إدارة email_activities يدوياً (GET -> PATCH أو POST) لضمان عدم فقدان first_open_at
           const eaRes = await fetch(
             `${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}&select=open_count`,
             { headers: sbHeaders }
           );
           const eaData = await eaRes.json();
-          const currentCount = (Array.isArray(eaData) && eaData.length > 0 && eaData[0].open_count)
-            ? eaData[0].open_count : 0;
+          const exists = Array.isArray(eaData) && eaData.length > 0;
+          const currentCount = exists ? (eaData[0].open_count || 0) : 0;
 
-          await fetch(
-            `${SUPABASE_URL}/rest/v1/email_activities?on_conflict=uid,campaign_name`,
-            {
+          if (exists) {
+            // السجل موجود مسبقاً -> تحديث العداد فقط
+            await fetch(
+              `${SUPABASE_URL}/rest/v1/email_activities?uid=eq.${uid}&campaign_name=eq.${encodeURIComponent(campaign)}`,
+              {
+                method: 'PATCH',
+                headers: sbHeaders,
+                body: JSON.stringify({
+                  open_count: currentCount + 1,
+                  last_open_at: now
+                })
+              }
+            );
+          } else {
+            // أول فتح للإيميل -> إدراج سجل جديد مع تضمين first_open_at
+            await fetch(`${SUPABASE_URL}/rest/v1/email_activities`, {
               method: 'POST',
-              headers: {
-              ...sbHeaders,
-                'Prefer': 'resolution=merge-duplicates'
-              },
+              headers: sbHeaders,
               body: JSON.stringify({
                 uid: uid,
                 campaign_name: campaign,
-                open_count: currentCount + 1,
+                open_count: 1,
+                first_open_at: now,
                 last_open_at: now
               })
-            }
-          );
+            });
+          }
 
-          // 3. تحديث total_email_opens في visitor_profiles
+          // 3. تحديث visitor_profiles (نتجنب total_email_opens لأنه غير موجود في المخطط)
           const profRes = await fetch(
-            `${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=total_email_opens,identified_email`,
+            `${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}&select=identified_email`,
             { headers: sbHeaders }
           );
           const profData = await profRes.json();
+          let email = 'Unknown';
+          
           if (Array.isArray(profData) && profData.length > 0) {
-            const newTotal = (profData[0].total_email_opens || 0) + 1;
+            email = profData[0].identified_email || 'Unknown';
+            // تحديث last_seen_at فقط لتفادي أخطاء الأعمدة المفقودة
             await fetch(`${SUPABASE_URL}/rest/v1/visitor_profiles?uid=eq.${uid}`, {
               method: 'PATCH',
               headers: sbHeaders,
               body: JSON.stringify({
-                total_email_opens: newTotal,
                 last_seen_at: now
               })
             });
-
-            // 4. إرسال إشعار تليجرام
-            const email = profData[0].identified_email || 'Unknown';
-            const tgMsg = `📧 *Email Opened!*\n\n*Email:* ${email}\n*Campaign:* ${campaign}\n*UID:* ${uid}\n*Time:* ${now}`;
-            await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                chat_id: TELEGRAM_CHAT_ID,
-                text: tgMsg,
-                parse_mode: 'Markdown'
-              })
-            });
           }
+
+          // 4. إرسال إشعار تليجرام (تم نقله خارج الـ if ليعمل دائماً حتى لو لم يكن الإيميل مسجلاً)
+          const tgMsg = `📧 *Email Opened!*\n\n*Email:* ${email}\n*Campaign:* ${campaign}\n*UID:* ${uid}\n*Time:* ${now}`;
+          await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: TELEGRAM_CHAT_ID,
+              text: tgMsg,
+              parse_mode: 'Markdown'
+            })
+          });
+
         } catch (innerErr) {
-          // أخطاء الكتابة لا يجب أن تؤثر على إرجاع الصورة — نتجاهلها بصمت هنا
+          // أخطاء الكتابة لا يجب أن تؤثر على إرجاع الصورة
           console.error('Email open tracking error:', innerErr);
         }
       })()
     );
 
-    // 5. أرجِع البكسل الشفاف دائماً (حتى أثناء استمرار عمليات الكتابة في الخلفية)
+    // 5. أرجِع البكسل الشفاف دائماً
     return buildPixelResponse();
 
   } catch (err) {
-    // أي خطأ خارجي: أرجِع البكسل أيضاً حتى لا يظهر خطأ في عميل البريد
+    // أي خطأ خارجي: أرجِع البكسل أيضاً
     console.error('Open pixel fatal error:', err);
     return buildPixelResponse();
   }
